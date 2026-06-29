@@ -1,0 +1,13 @@
+services:
+  bridge:
+    build: ./bridge
+    container_name: indicator-bridge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9527:9527"
+    env_file:
+      - ./bridge/.env
+    environment:
+      # 监听 0.0.0.0 以便端口映射到宿主 localhost
+      BRIDGE_HTTP_HOST: "0.0.0.0"
+      # 容器内无 mDNS,务必在 bridge/.env 把 INDICATOR_HOST 设成设备局域网 IP

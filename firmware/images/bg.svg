@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="32%" r="88%">
+      <stop offset="0%" stop-color="#0E1B2E"/>
+      <stop offset="55%" stop-color="#070E1A"/>
+      <stop offset="100%" stop-color="#03050B"/>
+    </radialGradient>
+    <radialGradient id="teal" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0e5870" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#0e5870" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violet" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3a2068" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#3a2068" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="50%" cy="50%" r="72%">
+      <stop offset="48%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.78"/>
+    </radialGradient>
+  </defs>
+  <rect width="480" height="480" fill="url(#bg)"/>
+  <ellipse cx="150" cy="120" rx="280" ry="150" fill="url(#teal)"/>
+  <ellipse cx="330" cy="300" rx="260" ry="150" fill="url(#violet)"/>
+  <rect width="480" height="480" fill="url(#vig)"/>
+</svg>

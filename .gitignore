@@ -1,0 +1,20 @@
+# ESPHome
+firmware/secrets.yaml
+firmware/.esphome/
+*.bin
+
+# 从 macOS 系统字体提取,含版权,不入库(用 fonts/extract-font.py 在本机重建)
+firmware/fonts/ChineseFont.ttf
+
+firmware/images/eye_strip_preview.png
+
+# Python bridge
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# misc
+.DS_Store
+docs/*.py

@@ -1,0 +1,40 @@
+{
+  "_comment": "把下面的 hooks 块合并进 ~/.claude/settings.json,并把 /ABS/PATH/TO 换成本仓库的绝对路径。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-start" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh user-prompt" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh pre-tool" }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh notification" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh stop" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,223 @@
+substitutions:
+  name: indicator-companion
+  friendly_name: Indicator AI Companion
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2024.12.0
+
+esp32:
+  variant: esp32s3
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_8MB: y
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: y
+      CONFIG_ESP32S3_DATA_CACHE_64KB: y
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  hardware_uart: UART0
+  level: INFO
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none   # 关闭 modem sleep —— 消除高延迟/丢包(连接不稳的根因)
+  output_power: 20dB      # 最大发射功率
+  ap: {}
+
+captive_portal:
+
+ota:
+  - platform: esphome
+
+api:
+  encryption:
+    key: !secret api_key
+  actions:
+    - action: show_card
+      variables:
+        status: string
+        mood: string
+        title: string
+        body: string
+        footer: string
+      then:
+        - lvgl.label.update:
+            id: lbl_mood
+            text: !lambda 'return mood.c_str();'
+        - lvgl.label.update:
+            id: lbl_title
+            text: !lambda 'return title.c_str();'
+        - lvgl.label.update:
+            id: lbl_body
+            text: !lambda 'return body.c_str();'
+        - lvgl.label.update:
+            id: lbl_footer
+            text: !lambda 'return footer.c_str();'
+        - lvgl.label.update:
+            id: lbl_mood
+            text_color: !lambda |-
+              if (status == "run") return lv_color_hex(0x4FC3F7);
+              else if (status == "think") return lv_color_hex(0x5C9DFF);
+              else if (status == "wait") return lv_color_hex(0xFFB74D);
+              else if (status == "done" || status == "ready" || status == "online") return lv_color_hex(0x66BB6A);
+              else return lv_color_hex(0x90A4AE);
+        - light.turn_on: backlight
+        - lvgl.resume:
+        - lvgl.widget.redraw:
+    # 会话指标(context 用量 + 5h limit),由 statusLine 经 bridge 推送
+    - action: set_metrics
+      variables:
+        metrics: string
+      then:
+        - lvgl.label.update:
+            id: lbl_metrics
+            text: !lambda 'return metrics.c_str();'
+
+i2c:
+  - id: bus_a
+    sda: GPIO39
+    scl: GPIO40
+    scan: false
+
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO41
+    mosi_pin: GPIO48
+    miso_pin: GPIO47
+
+pca9554:
+  - id: pca9554a_device
+    address: 0x20
+    pin_count: 16
+
+output:
+  - platform: ledc
+    pin:
+      number: GPIO45
+      ignore_strapping_warning: true
+    id: ledc_backlight
+    frequency: 100Hz
+
+light:
+  - platform: monochromatic
+    name: Backlight
+    id: backlight
+    output: ledc_backlight
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: mipi_rgb
+    model: SEEED-INDICATOR-D1
+    id: sensecap_display
+
+touchscreen:
+  platform: ft5x06
+  id: sensecap_touchscreen
+  transform:
+    mirror_x: true
+    mirror_y: true
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO38
+      inverted: true
+    name: Refresh Button
+    id: refresh_button
+    on_press:
+      then:
+        - lvgl.label.update:
+            id: lbl_footer
+            text: "…"
+
+image: !include images.yaml
+
+font:
+  - file: "fonts/ChineseFont.ttf"
+    id: font_lg
+    size: 30
+    bpp: 2
+    glyphsets: []
+    glyphs: !include glyphs_zh.yaml
+  - file: "fonts/ChineseFont.ttf"
+    id: font_sm
+    size: 19
+    bpp: 2
+    glyphsets: []
+    glyphs: !include glyphs_full.yaml
+
+lvgl:
+  displays:
+    - sensecap_display
+  touchscreens: sensecap_touchscreen
+  buffer_size: 50%
+  default_font: font_sm
+  log_level: WARN
+  color_depth: 16
+  bg_color: 0x05070D
+  widgets:
+    - image:
+        src: bg_image
+        align: CENTER
+    # 全屏信息流布局(无卡片容器):眼睛左上 + 状态旁置 + 左对齐文本
+    - animimg:
+        id: status_eyes
+        align: TOP_LEFT
+        x: 28
+        y: 26
+        src: [eye_00, eye_01, eye_02, eye_03, eye_04, eye_05, eye_06, eye_07, eye_08, eye_09, eye_10, eye_11, eye_12, eye_13, eye_14, eye_15, eye_16]
+        duration: 3000ms
+        repeat_count: forever
+        auto_start: true
+    - label:
+        id: lbl_mood
+        align: TOP_LEFT
+        x: 172
+        y: 48
+        text_font: font_sm
+        text_color: 0x4FC3F7
+        text: "booting"
+    - label:
+        id: lbl_title
+        align: TOP_LEFT
+        x: 30
+        y: 110
+        text_font: font_lg
+        text_color: 0xF2F5F8
+        text: "Indicator AI"
+    - label:
+        id: lbl_body
+        align: TOP_LEFT
+        x: 30
+        y: 160
+        width: 420
+        long_mode: WRAP
+        text_font: font_sm
+        text_color: 0xC2CEDC
+        text: "Waiting for bridge…"
+    - label:
+        id: lbl_footer
+        align: BOTTOM_LEFT
+        x: 30
+        y: -24
+        text_font: font_sm
+        text_color: 0x8FA0B4
+        text: "offline"
+    - label:
+        id: lbl_metrics
+        align: BOTTOM_RIGHT
+        x: -30
+        y: -24
+        text_font: font_sm
+        text_color: 0x5E7088
+        text: ""
