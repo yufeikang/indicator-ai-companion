@@ -28,6 +28,7 @@ class Strings:
     title_thinking: str
     body_got_request: str
     title_need_you: str
+    title_approve: str
     notify_default: str
     title_done: str
     body_tools_fmt: str
@@ -51,6 +52,7 @@ ZH = Strings(
     title_thinking="正在想…",
     body_got_request="收到你的请求",
     title_need_you="需要你",
+    title_approve="请批准",
     notify_default="需要你确认",
     title_done="搞定",
     body_tools_fmt="本回合 {n} 次工具调用",
@@ -74,6 +76,7 @@ EN = Strings(
     title_thinking="Thinking…",
     body_got_request="Got your request",
     title_need_you="Needs you",
+    title_approve="Approve?",
     notify_default="Waiting for input",
     title_done="Done",
     body_tools_fmt="{n} tool calls this turn",

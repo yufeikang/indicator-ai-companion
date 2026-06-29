@@ -77,6 +77,20 @@ def _tool_summary(tool_name: str, tool_input: dict | None) -> str:
     return ""
 
 
+def _ask_card(tool_input: dict, footer: str, s: Strings) -> "Card":
+    """AskUserQuestion 的 tool_input -> 一张带真实问题/选项的 wait 卡。"""
+    qs = tool_input.get("questions") or []
+    if not qs:
+        return Card(s.mood_wait, s.title_need_you, s.notify_default, footer, STATUS_WAIT)
+    q0 = qs[0]
+    body = q0.get("question", "") or s.notify_default
+    opts = [o.get("label", "") for o in (q0.get("options") or [])]
+    if opts:
+        body = f"{body} ｜ " + " / ".join(opts)
+    title = f"{s.title_need_you} (1/{len(qs)})" if len(qs) > 1 else s.title_need_you
+    return Card(s.mood_wait, title, body, footer, STATUS_WAIT)
+
+
 class Stats:
     """每个对话回合的轻量计数(从 hook 事件流里推断)。"""
 
@@ -105,11 +119,19 @@ def render_hook(event: str, payload: dict, stats: Stats, s: Strings) -> Card | N
 
     if event == "pre-tool":
         tn = payload.get("tool_name", "工具")
-        return Card(s.mood_run, tn, _tool_summary(tn, payload.get("tool_input")), footer, STATUS_RUN)
+        ti = payload.get("tool_input") or {}
+        if tn == "AskUserQuestion":
+            return _ask_card(ti, footer, s)
+        return Card(s.mood_run, tn, _tool_summary(tn, ti), footer, STATUS_RUN)
 
     if event == "notification":
+        ntype = payload.get("notification_type", "")
+        # Claude 干完活等下一步 / 认证成功:不抢镜,留给 stop 卡
+        if ntype in ("idle_prompt", "auth_success", "elicitation_complete", "elicitation_response"):
+            return None
+        title = s.title_approve if ntype == "permission_prompt" else s.title_need_you
         msg = payload.get("message", "") or s.notify_default
-        return Card(s.mood_wait, s.title_need_you, msg, footer, STATUS_WAIT)
+        return Card(s.mood_wait, title, msg, footer, STATUS_WAIT)
 
     if event == "stop":
         n = stats.tools_this_turn

@@ -71,6 +71,12 @@ api:
               else if (status == "wait") return lv_color_hex(0xFFB74D);
               else if (status == "done" || status == "ready" || status == "online") return lv_color_hex(0x66BB6A);
               else return lv_color_hex(0x90A4AE);
+        - lvgl.widget.update:
+            id: wait_frame
+            border_opa: !lambda 'return status == "wait" ? 255 : 0;'
+        - lvgl.widget.update:
+            id: status_eyes
+            image_recolor_opa: !lambda 'return status == "wait" ? 160 : 0;'
         - light.turn_on: backlight
         - lvgl.resume:
         - lvgl.widget.redraw:
@@ -179,6 +185,8 @@ lvgl:
         duration: 3000ms
         repeat_count: forever
         auto_start: true
+        image_recolor: 0xFFB74D
+        image_recolor_opa: 0
     - label:
         id: lbl_mood
         align: TOP_LEFT
@@ -221,3 +229,15 @@ lvgl:
         text_font: font_sm
         text_color: 0x5E7088
         text: ""
+    # status==wait 时整屏橙色边框(默认透明),驱动逻辑在 show_card
+    - obj:
+        id: wait_frame
+        align: CENTER
+        width: 100%
+        height: 100%
+        bg_opa: 0
+        radius: 0
+        pad_all: 0
+        border_color: 0xFFB74D
+        border_width: 10
+        border_opa: 0
