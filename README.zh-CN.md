@@ -7,7 +7,10 @@
 
 - **Claude Code HUD**:通过 Claude Code 的 hooks,屏幕实时显示「我」在干嘛——
   思考中 / 正在跑哪个工具 / 卡在等你确认 / 任务完成。
-- **AI 伴侣卡片**:空闲时由本地/局域网大模型生成一句温暖或机智的话;按一下设备实体键立刻换一张。
+- **多 session 图标条**:同时在多个终端跑 Claude Code,每个会话在顶部各占一个
+  **Claude 星芒图标**(最多 4 个)。该会话工作时星芒**呼吸**,图标下方的项目名按状态上色。
+  **点一下图标**即把详情卡切到那个会话(屏幕可触摸;点选只在设备↔bridge 本地闭环,不回传 Claude Code)。
+- **AI 伴侣卡片**:无活跃会话时由本地/局域网大模型生成一句温暖或机智的话;按一下设备实体键立刻换一张。
 - **多语言**:UI 与伴侣卡文案通过一个环境变量(`BRIDGE_LANG`)在 `zh` / `en` 间切换,新增语言也方便。
 
 ## 演示
@@ -23,16 +26,17 @@ flowchart LR
     LLM["OpenAI 兼容<br/>LLM 端点"]
     DEV["Indicator D1<br/>ESP32-S3 · LVGL"]
 
-    CC -- "hooks (HTTP)<br/>POST /hook/{event}" --> BR
-    BR -- "prompt" --> LLM
+    CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(带 session_id)" --> BR
+    BR -- "prompt(空闲时)" --> LLM
     LLM -- "伴侣卡" --> BR
-    BR -- "ESPHome 原生 API(加密)<br/>show_card · set_metrics" --> DEV
-    DEV -- "实体键 press(state)" --> BR
+    BR -- "ESPHome 原生 API(加密)<br/>show_card · set_sessions · set_metrics" --> DEV
+    DEV -- "实体键 / 图标点选(state)" --> BR
 ```
 
-LLM 全跑在设备之外(设备算力不够)。设备只负责显示 + 触摸 + 上报按键。bridge **只推语义、绝不推帧**:
-语言无关的 `status` 键(`run`/`think`/`wait`/`done`/`ready`/`online`)驱动设备端配色/动画,
-本地化的 `mood`/`title`/`body` 作为文本显示。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+LLM 全跑在设备之外(设备算力不够)。设备只负责显示 + 触摸 + 上报状态。bridge 按 `session_id`
+维护会话注册表,**只推语义、绝不推帧**:语言无关的 `status`(`run`/`think`/`wait`/`done`/`ready`/`online`)
+驱动设备端配色/动画(Claude 星芒在工作时**本地呼吸**),本地化的 `mood`/`title`/`body` 作为文本显示。
+点图标切换焦点会话——纯设备↔bridge 闭环,不回传 Claude Code。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 硬件
 
@@ -78,6 +82,8 @@ uv run --with fonttools fonts/extract-font.py     # 重建中文字体(含版权
 uv run --with cairosvg python -c "import cairosvg; cairosvg.svg2png(url='images/bg.svg', write_to='images/bg.png', output_width=480, output_height=480)"
 # 重新生成眨眼眼睛帧:
 uv run --with pillow --with numpy images/gen-eyes.py
+# 重新生成 Claude 星芒帧(session 图标,取自官方品牌 SVG):
+uv run --with cairosvg --with pillow images/gen-claude.py
 ```
 
 ### 1. 刷固件
@@ -120,8 +126,11 @@ docker logs indicator-bridge -f
 | PreToolUse | `run` | 工具名 + 摘要(命令 / 文件名 / grep 等) |
 | Notification | `wait` | 通知内容(等待权限/输入) |
 | Stop | `done` | 本回合工具调用次数 |
+| SessionEnd | — | 该会话从图标条移除 |
 
-`status` 语言无关、驱动设备端配色;屏幕上的 `mood`/`title`/`body` 跟随 `BRIDGE_LANG`。
+`status` 语言无关、驱动设备端配色;屏幕上的 `mood`/`title`/`body` 跟随 `BRIDGE_LANG`。每个事件都带
+`session_id`,图标条因此独立跟踪每个会话——星芒在 `run`/`think` 时呼吸,下方项目名按状态上色。
+详情卡显示**焦点**会话(默认跟最近活跃;点某图标可钉住它约 45s)。
 
 ## 语言
 
@@ -143,7 +152,7 @@ docker logs indicator-bridge -f
 
 ## 后续
 
-- 状态色推进到眼睛/动画,而不只是 mood 标签。
+- 按 session 分流指标(`set_metrics` 目前还是全局,改成跟 `session_id` 走)。
 - 从 `transcript_path` 解析 token/耗时,Stop 卡显示本回合成本。
 - 把 bridge 做成 launchd 开机自启。
 - 更多语言;在 D1S/D1Pro 上接传感器做环境管家。

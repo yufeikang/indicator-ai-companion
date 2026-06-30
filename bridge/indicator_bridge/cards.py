@@ -43,12 +43,38 @@ class Card:
         }
 
 
+MAX_SLOTS = 4  # 图标条最多并排显示的 session 数(与固件 set_sessions 槽位数一致)
+
+
 def _now() -> str:
     return time.strftime("%H:%M")
 
 
-def _project(cwd: str) -> str:
+def project_name(cwd: str) -> str:
     return os.path.basename(cwd.rstrip("/")) if cwd else ""
+
+
+# 向后兼容的私有别名(render_hook 内部仍用 _project)
+_project = project_name
+
+
+def _slot_label(s: str) -> str:
+    return sanitize_text(s)[:7]
+
+
+def sessions_args(slots: list[tuple[str, str]], focus_idx: int) -> dict:
+    """把已按显示顺序排好的 (status, label) 列表(<=4)组装成 set_sessions 的入参。"""
+    slots = slots[:MAX_SLOTS]
+    n = len(slots)
+    args: dict[str, object] = {
+        "count": n,
+        "focus": max(0, min(focus_idx, n - 1)) if n else 0,
+    }
+    for i in range(MAX_SLOTS):
+        st, lb = slots[i] if i < n else ("", "")
+        args[f"s{i}_status"] = st
+        args[f"s{i}_label"] = _slot_label(lb)
+    return args
 
 
 def _footer(payload: dict) -> str:
@@ -82,12 +108,18 @@ def _ask_card(tool_input: dict, footer: str, s: Strings) -> "Card":
     qs = tool_input.get("questions") or []
     if not qs:
         return Card(s.mood_wait, s.title_need_you, s.notify_default, footer, STATUS_WAIT)
-    q0 = qs[0]
-    body = q0.get("question", "") or s.notify_default
-    opts = [o.get("label", "") for o in (q0.get("options") or [])]
-    if opts:
-        body = f"{body} ｜ " + " / ".join(opts)
-    title = f"{s.title_need_you} (1/{len(qs)})" if len(qs) > 1 else s.title_need_you
+    if len(qs) == 1:
+        q0 = qs[0]
+        body = q0.get("question", "") or s.notify_default
+        opts = [o.get("label", "") for o in (q0.get("options") or [])]
+        if opts:
+            body = f"{body} ｜ " + " / ".join(opts)
+        return Card(s.mood_wait, s.title_need_you, body, footer, STATUS_WAIT)
+    # 多问:逐条编号列出,而非只显示第 1 问
+    body = "  ".join(
+        f"{i}.{(q.get('question') or '').strip()}" for i, q in enumerate(qs, 1)
+    )
+    title = f"{s.title_need_you} ({len(qs)})"
     return Card(s.mood_wait, title, body, footer, STATUS_WAIT)
 
 

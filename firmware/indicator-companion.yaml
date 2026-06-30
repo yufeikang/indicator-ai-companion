@@ -74,9 +74,6 @@ api:
         - lvgl.widget.update:
             id: wait_frame
             border_opa: !lambda 'return status == "wait" ? 255 : 0;'
-        - lvgl.widget.update:
-            id: status_eyes
-            image_recolor_opa: !lambda 'return status == "wait" ? 160 : 0;'
         - light.turn_on: backlight
         - lvgl.resume:
         - lvgl.widget.redraw:
@@ -88,6 +85,177 @@ api:
         - lvgl.label.update:
             id: lbl_metrics
             text: !lambda 'return metrics.c_str();'
+    # 多 session 图标条:count 个活跃会话,focus 为当前选中(详情卡所示)的槽位。
+    # 星芒固定 Claude 品牌色 0xD97757;run/think(working)时呼吸+满亮,其余静止+变暗。
+    # 状态色体现在图标下方的项目名文字上(青=run/蓝=think/橙=wait/绿=done/灰=idle)。
+    # count==0 显示待机眼睛。
+    - action: set_sessions
+      variables:
+        count: int
+        focus: int
+        s0_status: string
+        s0_label: string
+        s1_status: string
+        s1_label: string
+        s2_status: string
+        s2_label: string
+        s3_status: string
+        s3_label: string
+      then:
+        - if:
+            condition:
+              lambda: 'return count > 0;'
+            then:
+              - lvgl.widget.hide: status_eyes
+            else:
+              - lvgl.widget.show: status_eyes
+        # ---- slot 0 ----
+        - if:
+            condition:
+              lambda: 'return count > 0;'
+            then:
+              - lvgl.widget.show: slot0
+              - lvgl.label.update:
+                  id: slot0_lbl
+                  text: !lambda 'return s0_label.c_str();'
+                  text_color: !lambda |-
+                    std::string s = s0_status;
+                    if (s == "run") return lv_color_hex(0x4FC3F7);
+                    if (s == "think") return lv_color_hex(0x5C9DFF);
+                    if (s == "wait") return lv_color_hex(0xFFB74D);
+                    if (s == "done" || s == "ready" || s == "online") return lv_color_hex(0x66BB6A);
+                    return lv_color_hex(0x90A4AE);
+              - lvgl.widget.update:
+                  id: slot0_icon
+                  image_recolor_opa: !lambda 'return (s0_status == "run" || s0_status == "think" || s0_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s0_status == "run" || s0_status == "think";'
+                  then:
+                    - lvgl.animimg.start: slot0_icon
+                  else:
+                    - lvgl.animimg.stop: slot0_icon
+            else:
+              - lvgl.animimg.stop: slot0_icon
+              - lvgl.widget.hide: slot0
+        - if:
+            condition:
+              lambda: 'return count > 0 && focus == 0;'
+            then:
+              - lvgl.widget.show: hl0
+            else:
+              - lvgl.widget.hide: hl0
+        # ---- slot 1 ----
+        - if:
+            condition:
+              lambda: 'return count > 1;'
+            then:
+              - lvgl.widget.show: slot1
+              - lvgl.label.update:
+                  id: slot1_lbl
+                  text: !lambda 'return s1_label.c_str();'
+                  text_color: !lambda |-
+                    std::string s = s1_status;
+                    if (s == "run") return lv_color_hex(0x4FC3F7);
+                    if (s == "think") return lv_color_hex(0x5C9DFF);
+                    if (s == "wait") return lv_color_hex(0xFFB74D);
+                    if (s == "done" || s == "ready" || s == "online") return lv_color_hex(0x66BB6A);
+                    return lv_color_hex(0x90A4AE);
+              - lvgl.widget.update:
+                  id: slot1_icon
+                  image_recolor_opa: !lambda 'return (s1_status == "run" || s1_status == "think" || s1_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s1_status == "run" || s1_status == "think";'
+                  then:
+                    - lvgl.animimg.start: slot1_icon
+                  else:
+                    - lvgl.animimg.stop: slot1_icon
+            else:
+              - lvgl.animimg.stop: slot1_icon
+              - lvgl.widget.hide: slot1
+        - if:
+            condition:
+              lambda: 'return count > 1 && focus == 1;'
+            then:
+              - lvgl.widget.show: hl1
+            else:
+              - lvgl.widget.hide: hl1
+        # ---- slot 2 ----
+        - if:
+            condition:
+              lambda: 'return count > 2;'
+            then:
+              - lvgl.widget.show: slot2
+              - lvgl.label.update:
+                  id: slot2_lbl
+                  text: !lambda 'return s2_label.c_str();'
+                  text_color: !lambda |-
+                    std::string s = s2_status;
+                    if (s == "run") return lv_color_hex(0x4FC3F7);
+                    if (s == "think") return lv_color_hex(0x5C9DFF);
+                    if (s == "wait") return lv_color_hex(0xFFB74D);
+                    if (s == "done" || s == "ready" || s == "online") return lv_color_hex(0x66BB6A);
+                    return lv_color_hex(0x90A4AE);
+              - lvgl.widget.update:
+                  id: slot2_icon
+                  image_recolor_opa: !lambda 'return (s2_status == "run" || s2_status == "think" || s2_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s2_status == "run" || s2_status == "think";'
+                  then:
+                    - lvgl.animimg.start: slot2_icon
+                  else:
+                    - lvgl.animimg.stop: slot2_icon
+            else:
+              - lvgl.animimg.stop: slot2_icon
+              - lvgl.widget.hide: slot2
+        - if:
+            condition:
+              lambda: 'return count > 2 && focus == 2;'
+            then:
+              - lvgl.widget.show: hl2
+            else:
+              - lvgl.widget.hide: hl2
+        # ---- slot 3 ----
+        - if:
+            condition:
+              lambda: 'return count > 3;'
+            then:
+              - lvgl.widget.show: slot3
+              - lvgl.label.update:
+                  id: slot3_lbl
+                  text: !lambda 'return s3_label.c_str();'
+                  text_color: !lambda |-
+                    std::string s = s3_status;
+                    if (s == "run") return lv_color_hex(0x4FC3F7);
+                    if (s == "think") return lv_color_hex(0x5C9DFF);
+                    if (s == "wait") return lv_color_hex(0xFFB74D);
+                    if (s == "done" || s == "ready" || s == "online") return lv_color_hex(0x66BB6A);
+                    return lv_color_hex(0x90A4AE);
+              - lvgl.widget.update:
+                  id: slot3_icon
+                  image_recolor_opa: !lambda 'return (s3_status == "run" || s3_status == "think" || s3_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s3_status == "run" || s3_status == "think";'
+                  then:
+                    - lvgl.animimg.start: slot3_icon
+                  else:
+                    - lvgl.animimg.stop: slot3_icon
+            else:
+              - lvgl.animimg.stop: slot3_icon
+              - lvgl.widget.hide: slot3
+        - if:
+            condition:
+              lambda: 'return count > 3 && focus == 3;'
+            then:
+              - lvgl.widget.show: hl3
+            else:
+              - lvgl.widget.hide: hl3
+        - light.turn_on: backlight
+        - lvgl.resume:
+        - lvgl.widget.redraw:
 
 i2c:
   - id: bus_a
@@ -146,6 +314,21 @@ binary_sensor:
             id: lbl_footer
             text: "…"
 
+# 触摸点选 session 用:每次点击递增,publish 值 = tap_seq*4 + 槽位索引。
+# 自增保证值每次都变(同槽连点也会上报),bridge 取 int(value)%4 还原槽位。
+globals:
+  - id: tap_seq
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+sensor:
+  - platform: template
+    name: "Selected Session"
+    id: selected_session
+    accuracy_decimals: 0
+    update_interval: never
+
 image: !include images.yaml
 
 font:
@@ -175,7 +358,7 @@ lvgl:
     - image:
         src: bg_image
         align: CENTER
-    # 全屏信息流布局(无卡片容器):眼睛左上 + 状态旁置 + 左对齐文本
+    # 待机头像:无活跃 session 时显示的眨眼睛(count>0 时被 set_sessions 隐藏)
     - animimg:
         id: status_eyes
         align: TOP_LEFT
@@ -187,11 +370,211 @@ lvgl:
         auto_start: true
         image_recolor: 0xFFB74D
         image_recolor_opa: 0
+    # 顶部 session 图标条:4 个可点槽位(Claude 星芒 + 项目名),默认隐藏,由 set_sessions 驱动。
+    # 点击 -> 自增 tap_seq、publish selected_session(*4+索引),bridge 据此切换详情卡焦点。
+    - button:
+        id: slot0
+        align: TOP_LEFT
+        x: 4
+        y: 10
+        width: 112
+        height: 92
+        bg_opa: 0
+        border_width: 0
+        shadow_width: 0
+        pad_all: 0
+        hidden: true
+        on_click:
+          - lambda: 'id(tap_seq) += 1; id(selected_session).publish_state(id(tap_seq) * 4 + 0);'
+        widgets:
+          - animimg:
+              id: slot0_icon
+              align: TOP_MID
+              y: 4
+              src: [claude_00, claude_01, claude_02, claude_03, claude_04, claude_05, claude_06, claude_07, claude_08, claude_09, claude_10, claude_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              image_recolor: 0xD97757
+              image_recolor_opa: 100%
+          - label:
+              id: slot0_lbl
+              align: BOTTOM_MID
+              y: -2
+              width: 110
+              text_align: CENTER
+              long_mode: CLIP
+              text_font: font_sm
+              text_color: 0xC2CEDC
+              text: ""
+    - button:
+        id: slot1
+        align: TOP_LEFT
+        x: 124
+        y: 10
+        width: 112
+        height: 92
+        bg_opa: 0
+        border_width: 0
+        shadow_width: 0
+        pad_all: 0
+        hidden: true
+        on_click:
+          - lambda: 'id(tap_seq) += 1; id(selected_session).publish_state(id(tap_seq) * 4 + 1);'
+        widgets:
+          - animimg:
+              id: slot1_icon
+              align: TOP_MID
+              y: 4
+              src: [claude_00, claude_01, claude_02, claude_03, claude_04, claude_05, claude_06, claude_07, claude_08, claude_09, claude_10, claude_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              image_recolor: 0xD97757
+              image_recolor_opa: 100%
+          - label:
+              id: slot1_lbl
+              align: BOTTOM_MID
+              y: -2
+              width: 110
+              text_align: CENTER
+              long_mode: CLIP
+              text_font: font_sm
+              text_color: 0xC2CEDC
+              text: ""
+    - button:
+        id: slot2
+        align: TOP_LEFT
+        x: 244
+        y: 10
+        width: 112
+        height: 92
+        bg_opa: 0
+        border_width: 0
+        shadow_width: 0
+        pad_all: 0
+        hidden: true
+        on_click:
+          - lambda: 'id(tap_seq) += 1; id(selected_session).publish_state(id(tap_seq) * 4 + 2);'
+        widgets:
+          - animimg:
+              id: slot2_icon
+              align: TOP_MID
+              y: 4
+              src: [claude_00, claude_01, claude_02, claude_03, claude_04, claude_05, claude_06, claude_07, claude_08, claude_09, claude_10, claude_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              image_recolor: 0xD97757
+              image_recolor_opa: 100%
+          - label:
+              id: slot2_lbl
+              align: BOTTOM_MID
+              y: -2
+              width: 110
+              text_align: CENTER
+              long_mode: CLIP
+              text_font: font_sm
+              text_color: 0xC2CEDC
+              text: ""
+    - button:
+        id: slot3
+        align: TOP_LEFT
+        x: 364
+        y: 10
+        width: 112
+        height: 92
+        bg_opa: 0
+        border_width: 0
+        shadow_width: 0
+        pad_all: 0
+        hidden: true
+        on_click:
+          - lambda: 'id(tap_seq) += 1; id(selected_session).publish_state(id(tap_seq) * 4 + 3);'
+        widgets:
+          - animimg:
+              id: slot3_icon
+              align: TOP_MID
+              y: 4
+              src: [claude_00, claude_01, claude_02, claude_03, claude_04, claude_05, claude_06, claude_07, claude_08, claude_09, claude_10, claude_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              image_recolor: 0xD97757
+              image_recolor_opa: 100%
+          - label:
+              id: slot3_lbl
+              align: BOTTOM_MID
+              y: -2
+              width: 110
+              text_align: CENTER
+              long_mode: CLIP
+              text_font: font_sm
+              text_color: 0xC2CEDC
+              text: ""
+    # 焦点指示条:置于被选中槽位下方,set_sessions 据 focus 显示其一
+    - obj:
+        id: hl0
+        align: TOP_LEFT
+        x: 28
+        y: 104
+        width: 64
+        height: 4
+        radius: 2
+        bg_color: 0xF2F5F8
+        bg_opa: 90%
+        border_width: 0
+        pad_all: 0
+        clickable: false
+        hidden: true
+    - obj:
+        id: hl1
+        align: TOP_LEFT
+        x: 148
+        y: 104
+        width: 64
+        height: 4
+        radius: 2
+        bg_color: 0xF2F5F8
+        bg_opa: 90%
+        border_width: 0
+        pad_all: 0
+        clickable: false
+        hidden: true
+    - obj:
+        id: hl2
+        align: TOP_LEFT
+        x: 268
+        y: 104
+        width: 64
+        height: 4
+        radius: 2
+        bg_color: 0xF2F5F8
+        bg_opa: 90%
+        border_width: 0
+        pad_all: 0
+        clickable: false
+        hidden: true
+    - obj:
+        id: hl3
+        align: TOP_LEFT
+        x: 388
+        y: 104
+        width: 64
+        height: 4
+        radius: 2
+        bg_color: 0xF2F5F8
+        bg_opa: 90%
+        border_width: 0
+        pad_all: 0
+        clickable: false
+        hidden: true
+    # 详情卡(下移让出顶部图标条):焦点 session 的 mood/title/body/footer
     - label:
         id: lbl_mood
         align: TOP_LEFT
-        x: 172
-        y: 48
+        x: 30
+        y: 122
         text_font: font_sm
         text_color: 0x4FC3F7
         text: "booting"
@@ -199,7 +582,7 @@ lvgl:
         id: lbl_title
         align: TOP_LEFT
         x: 30
-        y: 110
+        y: 150
         text_font: font_lg
         text_color: 0xF2F5F8
         text: "Indicator AI"
@@ -207,7 +590,7 @@ lvgl:
         id: lbl_body
         align: TOP_LEFT
         x: 30
-        y: 160
+        y: 198
         width: 420
         long_mode: WRAP
         text_font: font_sm
@@ -229,7 +612,8 @@ lvgl:
         text_font: font_sm
         text_color: 0x5E7088
         text: ""
-    # status==wait 时整屏橙色边框(默认透明),驱动逻辑在 show_card
+    # status==wait 时整屏橙色边框(默认透明),驱动逻辑在 show_card。
+    # clickable: false —— 全屏覆盖但不拦截触摸,放行点到下面的 session 槽位。
     - obj:
         id: wait_frame
         align: CENTER
@@ -238,6 +622,7 @@ lvgl:
         bg_opa: 0
         radius: 0
         pad_all: 0
+        clickable: false
         border_color: 0xFFB74D
         border_width: 10
         border_opa: 0

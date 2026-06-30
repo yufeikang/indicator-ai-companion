@@ -1,74 +1,204 @@
 import asyncio
 import logging
 import time
+from dataclasses import dataclass, field
 
 from aiohttp import web
 
-from .cards import Card, Stats, format_metrics, render_hook
+from .cards import (
+    MAX_SLOTS,
+    Card,
+    Stats,
+    format_metrics,
+    project_name,
+    render_hook,
+    sessions_args,
+)
 from .companion import Companion
 from .config import Config
 from .device import Indicator
-from .i18n import STATUS_ONLINE, get_strings
+from .i18n import STATUS_ONLINE, STATUS_WAIT, get_strings
 
 log = logging.getLogger("indicator.app")
+
+PIN_TTL = 45.0          # 手点某图标后,焦点钉在它身上的有效时长(秒)
+SESSION_TTL = 1800.0    # 一个 session 多久无事件后从图标条移除(秒)
+
+
+@dataclass
+class SessionState:
+    sid: str
+    project: str = ""
+    card: Card | None = None
+    status: str = ""
+    stats: Stats = field(default_factory=Stats)
+    first_seen: float = 0.0
+    last_seen: float = 0.0
 
 
 class Bridge:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.strings = get_strings(cfg.lang)
-        self.device = Indicator(cfg.host, cfg.noise_psk, on_button=self.on_button)
-        self.queue: asyncio.Queue[Card] = asyncio.Queue(maxsize=8)
-        self.stats = Stats()
+        self.device = Indicator(
+            cfg.host, cfg.noise_psk,
+            on_button=self.on_button,
+            on_select=self.on_select,
+            on_connect=self.on_connect,
+        )
+        self.sessions: dict[str, SessionState] = {}
+        self.focused_sid: str | None = None
+        self.pin_until = 0.0
+        self.slot_order: list[str] = []     # 上次推送的槽位顺序(触摸 idx -> sid 的映射依据)
+        self.idle_card: Card | None = None   # 无活跃 session 时详情区展示(伴侣卡/等待)
         self.last_event = 0.0
         self.last_companion = 0.0
         self.companion = Companion(
             cfg.companion_base_url, cfg.companion_model, cfg.companion_api_key, cfg.lang
         )
+        self._lock = asyncio.Lock()
+        # 去重缓存:与上次一致则跳过推送
+        self._last_sessions_args: dict | None = None
+        self._last_card_data: dict | None = None
 
-    # ---- 入队(满则丢最旧的,保证最新状态优先) ----
-    def enqueue(self, card: Card) -> None:
-        if self.queue.full():
-            try:
-                self.queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-        try:
-            self.queue.put_nowait(card)
-        except asyncio.QueueFull:
-            pass
+    # ---- 焦点 / 图标条计算 ----
+    def _active(self, now: float) -> list[SessionState]:
+        """活跃(未过期)的 session,按显示顺序(出现先后)排好并限 MAX_SLOTS 个。"""
+        alive = [s for s in self.sessions.values() if now - s.last_seen <= SESSION_TTL]
+        # 先按最近活跃挑出要保留的若干个,再按首次出现排序 -> 槽位左右稳定不乱跳
+        alive.sort(key=lambda s: s.last_seen, reverse=True)
+        keep = alive[:MAX_SLOTS]
+        keep.sort(key=lambda s: s.first_seen)
+        return keep
 
+    async def _push(self) -> None:
+        """重算图标条与焦点,推送 set_sessions + 焦点详情卡(或待机卡)。"""
+        async with self._lock:
+            now = time.monotonic()
+            order = self._active(now)
+            self.slot_order = [s.sid for s in order]
+
+            pinned = (
+                self.focused_sid in self.slot_order and now < self.pin_until
+            )
+            if not pinned:
+                # wait 状态优先获得焦点,否则跟随最近活跃
+                waiting = [s for s in order if s.status == STATUS_WAIT]
+                pool = waiting or order
+                self.focused_sid = (
+                    max(pool, key=lambda s: s.last_seen).sid if pool else None
+                )
+            focus_idx = (
+                self.slot_order.index(self.focused_sid)
+                if self.focused_sid in self.slot_order else 0
+            )
+
+            slots = [(s.status, s.project or "cc") for s in order]
+            sargs = sessions_args(slots, focus_idx)
+            if sargs != self._last_sessions_args:
+                self._last_sessions_args = sargs
+                await self.device.set_sessions(sargs)
+
+            card = None
+            if self.focused_sid and self.focused_sid in self.sessions:
+                card = self.sessions[self.focused_sid].card
+            if card is None:
+                card = self.idle_card
+            if card is not None:
+                cdata = card.to_data()
+                if cdata != self._last_card_data:
+                    self._last_card_data = cdata
+                    await self.device.show_card(card)
+
+    # ---- Claude Code hook 事件 ----
     async def on_hook(self, event: str, payload: dict) -> None:
-        self.stats.observe(event, payload)
-        card = render_hook(event, payload, self.stats, self.strings)
+        now = time.monotonic()
+        sid = str(payload.get("session_id") or "default")
+
+        if event == "session-end":
+            self.sessions.pop(sid, None)
+            if self.focused_sid == sid:
+                self.focused_sid = None
+                self.pin_until = 0.0  # 解除残留钉住
+            await self._push()
+            return
+
+        sess = self.sessions.get(sid)
+        existed = sess is not None
+        if sess is None:
+            sess = SessionState(sid=sid, first_seen=now, last_seen=now)
+
+        sess.stats.observe(event, payload)
+        card = render_hook(event, payload, sess.stats, self.strings)
+
+        # 不出卡的新 session 不登记,避免幽灵槽位
+        if card is None and not existed and not sess.status:
+            return
+
+        self.sessions[sid] = sess
+        sess.last_seen = now
+        self.last_event = now
+        proj = project_name(payload.get("cwd", ""))
+        if proj:
+            sess.project = proj
         if card:
-            self.last_event = time.monotonic()
-            self.enqueue(card)
+            sess.card = card
+            if card.status:
+                sess.status = card.status
+        await self._push()
+
+    async def on_select(self, idx: int) -> None:
+        # 持锁读 slot_order,防与 _push 并发错位
+        async with self._lock:
+            if not (0 <= idx < len(self.slot_order)):
+                return
+            self.focused_sid = self.slot_order[idx]
+            self.pin_until = time.monotonic() + PIN_TTL
+            log.info("touch -> focus session %s (slot %d)", self.focused_sid, idx)
+        await self._push()
 
     async def on_button(self) -> None:
+        # 物理刷新键 -> 伴侣卡,立即显示
         log.info("button pressed -> companion card")
-        self.last_companion = time.monotonic()
-        card = await self.companion.generate(trigger="button")
         s = self.strings
-        self.enqueue(card or Card(s.mood_hello, s.title_button_tap, s.body_companion_offline, ""))
+        card = await self.companion.generate(trigger="button")
+        if card:
+            self.last_companion = time.monotonic()  # 仅成功才消费冷却
+            self.idle_card = card
+        else:
+            self.idle_card = Card(
+                s.mood_hello, s.title_button_tap, s.body_companion_offline, ""
+            )
+        self._last_card_data = self.idle_card.to_data()
+        await self.device.show_card(self.idle_card)
+
+    async def on_connect(self) -> None:
+        # 重连后清缓存,强制全量重推
+        self._last_sessions_args = None
+        self._last_card_data = None
+        await self._push()
 
     # ---- 后台任务 ----
-    async def _pusher(self) -> None:
-        while True:
-            card = await self.queue.get()
-            await self.device.show_card(card)
-
     async def _companion_loop(self) -> None:
         while True:
             await asyncio.sleep(15)
             now = time.monotonic()
+            # 过期 session 清理 -> 图标条收敛
+            stale = [sid for sid, s in self.sessions.items() if now - s.last_seen > SESSION_TTL]
+            for sid in stale:
+                self.sessions.pop(sid, None)
+            if stale:
+                await self._push()
+
             idle = self.last_event == 0.0 or (now - self.last_event) >= self.cfg.idle_seconds
             due = (now - self.last_companion) >= self.cfg.companion_interval
-            if idle and due:
+            no_active = not self._active(now)
+            if idle and due and no_active:
                 self.last_companion = now
                 card = await self.companion.generate(trigger="idle")
                 if card:
-                    self.enqueue(card)
+                    self.idle_card = card
+                    await self._push()
 
     # ---- HTTP(接收 Claude Code hook 事件) ----
     async def _http_hook(self, request: web.Request) -> web.Response:
@@ -107,8 +237,8 @@ class Bridge:
         await site.start()
         log.info("hook endpoint: http://%s:%d/hook/<event>", self.cfg.http_host, self.cfg.http_port)
 
-        await self.device.start()
         s = self.strings
-        self.enqueue(Card(s.mood_online, s.title_bridge_up, s.body_waiting_cc, "", STATUS_ONLINE))
+        self.idle_card = Card(s.mood_online, s.title_bridge_up, s.body_waiting_cc, "", STATUS_ONLINE)
+        await self.device.start()  # on_connect 回调会在连上后推首屏(眼睛 + 等待卡)
 
-        await asyncio.gather(self._pusher(), self._companion_loop())
+        await self._companion_loop()

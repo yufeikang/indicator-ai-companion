@@ -35,6 +35,13 @@
           { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh stop" }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-end" }
+        ]
+      }
     ]
   }
 }

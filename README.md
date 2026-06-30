@@ -8,8 +8,13 @@ dark ambient UI.
 
 - **Claude Code HUD** — via Claude Code hooks, the screen shows in real time what your
   agent is doing: thinking / which tool is running / waiting for your confirmation / done.
-- **AI companion cards** — when idle, a local/LAN LLM generates a short warm or witty
-  line; press the device button to swap to a fresh one.
+- **Multi-session icon strip** — run Claude Code in several terminals at once and each
+  session gets its own **Claude spark icon** across the top (up to 4). The spark breathes
+  while that session is working; the project name under it is color-coded by status.
+  **Tap an icon** to switch the detail card to that session (the screen is touch; the tap
+  loop is device↔bridge only — it does not feed back into Claude Code).
+- **AI companion cards** — when no session is active, a local/LAN LLM generates a short
+  warm or witty line; press the device button to swap to a fresh one.
 - **Multi-language** — UI and companion text switch between `zh` / `en` via one env var
   (`BRIDGE_LANG`), and the design makes adding more languages easy.
 
@@ -21,23 +26,25 @@ dark ambient UI.
 
 ```mermaid
 flowchart LR
-    CC["Claude Code<br/>(your session)"]
+    CC["Claude Code<br/>(N sessions)"]
     BR["bridge<br/>(Docker daemon)"]
     LLM["OpenAI-compatible<br/>LLM endpoint"]
     DEV["Indicator D1<br/>(ESP32-S3 · LVGL)"]
 
-    CC -- "hooks (HTTP)<br/>POST /hook/{event}" --> BR
-    BR -- "prompt" --> LLM
+    CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(carries session_id)" --> BR
+    BR -- "prompt (when idle)" --> LLM
     LLM -- "companion card" --> BR
-    BR -- "ESPHome native API (encrypted)<br/>show_card · set_metrics" --> DEV
-    DEV -- "button press (state)" --> BR
+    BR -- "ESPHome native API (encrypted)<br/>show_card · set_sessions · set_metrics" --> DEV
+    DEV -- "button / icon tap (state)" --> BR
 ```
 
 All LLM work runs off-device (the board can't host it). The device only displays,
-handles touch, and reports the button. The bridge pushes **semantics, never frames**:
-a language-independent `status` key (`run`/`think`/`wait`/`done`/`ready`/`online`)
-drives on-device color/animation, while the localized `mood`/`title`/`body` are shown
-as text. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+handles touch, and reports state. The bridge keys events by `session_id`, keeps a small
+session registry, and pushes **semantics, never frames**: a language-independent `status`
+(`run`/`think`/`wait`/`done`/`ready`/`online`) drives on-device color/animation (the Claude
+spark *breathes* locally while working), while the localized `mood`/`title`/`body` show as
+text. Tapping an icon switches the focused session — a device↔bridge loop that never feeds
+back into Claude Code. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Hardware
 
@@ -84,6 +91,8 @@ uv run --with fonttools fonts/extract-font.py     # rebuild the CJK font (copyri
 uv run --with cairosvg python -c "import cairosvg; cairosvg.svg2png(url='images/bg.svg', write_to='images/bg.png', output_width=480, output_height=480)"
 # regenerate the blinking-eyes frames:
 uv run --with pillow --with numpy images/gen-eyes.py
+# regenerate the Claude spark frames (session icon; from the official brand SVG):
+uv run --with cairosvg --with pillow images/gen-claude.py
 ```
 
 ### 1. Flash the firmware
@@ -130,9 +139,13 @@ absolute path. Restart the session to take effect.
 | PreToolUse | `run` | tool name + summary (command / file / grep …) |
 | Notification | `wait` | the notification (awaiting permission/input) |
 | Stop | `done` | tool-call count this turn |
+| SessionEnd | — | session removed from the icon strip |
 
 `status` is language-independent and drives the on-device color; the visible
-`mood`/`title`/`body` follow `BRIDGE_LANG`.
+`mood`/`title`/`body` follow `BRIDGE_LANG`. Each event carries a `session_id`, so the
+strip tracks every session independently — the spark icon breathes for `run`/`think`,
+and the project name under it is tinted by status. The detail card shows the **focused**
+session (most recently active by default; tap an icon to pin one for ~45s).
 
 ## Languages
 
@@ -157,7 +170,7 @@ Set `BRIDGE_LANG` in `bridge/.env` — `zh` (default) or `en`. To add a language
 
 ## Roadmap
 
-- Status-driven accent colors on the eyes/animation, not just the mood label.
+- Per-session metrics (`set_metrics` is still global; route it through `session_id`).
 - Parse token/cost from `transcript_path`; show this turn's cost on the Stop card.
 - Ship the bridge as a launchd service for auto-start.
 - More languages; sensor-aware "environment butler" on D1S/D1Pro variants.

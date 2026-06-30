@@ -69,3 +69,52 @@
   id: eye_16
   type: RGB565
   transparency: alpha_channel
+
+- file: "images/claude/claude_00.png"
+  id: claude_00
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_01.png"
+  id: claude_01
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_02.png"
+  id: claude_02
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_03.png"
+  id: claude_03
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_04.png"
+  id: claude_04
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_05.png"
+  id: claude_05
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_06.png"
+  id: claude_06
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_07.png"
+  id: claude_07
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_08.png"
+  id: claude_08
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_09.png"
+  id: claude_09
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_10.png"
+  id: claude_10
+  type: RGB565
+  transparency: alpha_channel
+- file: "images/claude/claude_11.png"
+  id: claude_11
+  type: RGB565
+  transparency: alpha_channel
