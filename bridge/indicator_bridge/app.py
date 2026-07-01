@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 
@@ -12,6 +13,7 @@ from .cards import (
     format_metrics,
     project_name,
     render_hook,
+    sanitize_text,
     sessions_args,
 )
 from .companion import Companion
@@ -23,6 +25,7 @@ log = logging.getLogger("indicator.app")
 
 PIN_TTL = 45.0          # 手点某图标后,焦点钉在它身上的有效时长(秒)
 SESSION_TTL = 1800.0    # 一个 session 多久无事件后从图标条移除(秒)
+SAVER_LINE_TTL = 120.0  # 屏保期间俏皮话多久换一句(秒)
 
 
 @dataclass
@@ -45,6 +48,7 @@ class Bridge:
             on_button=self.on_button,
             on_select=self.on_select,
             on_connect=self.on_connect,
+            on_wake=self.on_wake,
         )
         self.sessions: dict[str, SessionState] = {}
         self.focused_sid: str | None = None
@@ -53,6 +57,10 @@ class Bridge:
         self.idle_card: Card | None = None   # 无活跃 session 时详情区展示(伴侣卡/等待)
         self.last_event = 0.0
         self.last_companion = 0.0
+        self.started_at = 0.0
+        self.screensaver_on = False
+        self.last_wake = 0.0
+        self.last_saver_line = 0.0
         self.companion = Companion(
             cfg.companion_base_url, cfg.companion_model, cfg.companion_api_key, cfg.lang
         )
@@ -138,6 +146,8 @@ class Bridge:
         self.sessions[sid] = sess
         sess.last_seen = now
         self.last_event = now
+        if self.screensaver_on:
+            await self._exit_screensaver()
         proj = project_name(payload.get("cwd", ""))
         if proj:
             sess.project = proj
@@ -160,6 +170,9 @@ class Bridge:
     async def on_button(self) -> None:
         # 物理刷新键 -> 伴侣卡,立即显示
         log.info("button pressed -> companion card")
+        self.last_wake = time.monotonic()
+        if self.screensaver_on:
+            await self._exit_screensaver()
         s = self.strings
         card = await self.companion.generate(trigger="button")
         if card:
@@ -172,10 +185,17 @@ class Bridge:
         self._last_card_data = self.idle_card.to_data()
         await self.device.show_card(self.idle_card)
 
+    async def on_wake(self) -> None:
+        # 点屏唤醒:固件已本地隐藏覆盖层,这里只重置计时,避免立刻又进屏保
+        log.info("touch wake -> exit screensaver")
+        self.last_wake = time.monotonic()
+        self.screensaver_on = False
+
     async def on_connect(self) -> None:
-        # 重连后清缓存,强制全量重推
+        # 重连后设备覆盖层默认隐藏,清缓存强制全量重推
         self._last_sessions_args = None
         self._last_card_data = None
+        self.screensaver_on = False
         await self._push()
 
     # ---- 后台任务 ----
@@ -193,12 +213,46 @@ class Bridge:
             idle = self.last_event == 0.0 or (now - self.last_event) >= self.cfg.idle_seconds
             due = (now - self.last_companion) >= self.cfg.companion_interval
             no_active = not self._active(now)
-            if idle and due and no_active:
+            if idle and due and no_active and not self.screensaver_on:
                 self.last_companion = now
                 card = await self.companion.generate(trigger="idle")
                 if card:
                     self.idle_card = card
                     await self._push()
+
+            await self._maybe_screensaver(now)
+
+    async def _maybe_screensaver(self, now: float) -> None:
+        # needs-you(wait)告警时不睡;否则距最后活动/唤醒超时即全屏大眼睛
+        waiting = any(s.status == STATUS_WAIT for s in self._active(now))
+        idle_ref = max(self.last_event, self.last_wake, self.started_at)
+        long_idle = (now - idle_ref) >= self.cfg.screensaver_seconds
+        if waiting and self.screensaver_on:
+            await self._exit_screensaver()
+        if waiting or not long_idle:
+            return
+        if not self.screensaver_on or (now - self.last_saver_line) >= SAVER_LINE_TTL:
+            await self._enter_screensaver()
+
+    async def _enter_screensaver(self) -> None:
+        line = await self.companion.generate_line() or ""
+        # generate_line 可能耗时数秒,期间若有新活动/告警则放弃进屏保
+        now = time.monotonic()
+        idle_ref = max(self.last_event, self.last_wake, self.started_at)
+        if (now - idle_ref) < self.cfg.screensaver_seconds:
+            return
+        if any(s.status == STATUS_WAIT for s in self._active(now)):
+            return
+        line = sanitize_text(line)[:40] or random.choice(self.strings.screensaver_lines)
+        self.screensaver_on = True
+        self.last_saver_line = now
+        await self.device.set_screensaver(True, line, self.strings.screensaver_hint)
+
+    async def _exit_screensaver(self) -> None:
+        if not self.screensaver_on:
+            return
+        self.screensaver_on = False
+        await self.device.set_screensaver(False, "", "")
 
     # ---- HTTP(接收 Claude Code hook 事件) ----
     async def _http_hook(self, request: web.Request) -> web.Response:
@@ -227,6 +281,7 @@ class Bridge:
         return web.Response(status=204)
 
     async def run(self) -> None:
+        self.started_at = time.monotonic()
         app = web.Application()
         app.router.add_post("/hook/{event}", self._http_hook)
         app.router.add_post("/metrics", self._http_metrics)

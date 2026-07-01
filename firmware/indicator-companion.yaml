@@ -256,6 +256,33 @@ api:
         - light.turn_on: backlight
         - lvgl.resume:
         - lvgl.widget.redraw:
+    # 屏保:active 显隐全屏大眼睛,line/hint 由 bridge 推送
+    - action: set_screensaver
+      variables:
+        active: bool
+        line: string
+        hint: string
+      then:
+        - lvgl.label.update:
+            id: saver_line
+            text: !lambda 'return line.c_str();'
+        - lvgl.label.update:
+            id: saver_hint
+            text: !lambda 'return hint.c_str();'
+        - if:
+            condition:
+              lambda: 'return active;'
+            then:
+              - lvgl.animimg.start: saver_eyes
+              - lvgl.widget.show: saver
+              - light.turn_on: backlight
+              - lvgl.resume:
+              - lvgl.widget.redraw:
+            else:
+              - lvgl.widget.hide: saver
+              - lvgl.animimg.stop: saver_eyes
+              - lvgl.resume:
+              - lvgl.widget.redraw:
 
 i2c:
   - id: bus_a
@@ -321,11 +348,21 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
+  # 屏保点屏唤醒:自增以强制上报,bridge 据此退出屏保
+  - id: wake_seq
+    type: int
+    restore_value: no
+    initial_value: '0'
 
 sensor:
   - platform: template
     name: "Selected Session"
     id: selected_session
+    accuracy_decimals: 0
+    update_interval: never
+  - platform: template
+    name: "Screensaver Wake"
+    id: screensaver_wake
     accuracy_decimals: 0
     update_interval: never
 
@@ -343,7 +380,7 @@ font:
     size: 19
     bpp: 2
     glyphsets: []
-    glyphs: !include glyphs_full.yaml
+    glyphs: !include glyphs_zh.yaml
 
 lvgl:
   displays:
@@ -355,9 +392,18 @@ lvgl:
   color_depth: 16
   bg_color: 0x05070D
   widgets:
-    - image:
-        src: bg_image
+    # 全屏背景:垂直渐变填充(上方辉光色 → 下方近黑),替代原 480x480 bg.png(省 ~450KB flash)
+    - obj:
         align: CENTER
+        width: 100%
+        height: 100%
+        radius: 0
+        pad_all: 0
+        border_width: 0
+        clickable: false
+        bg_color: 0x102A3A
+        bg_grad_color: 0x05070D
+        bg_grad_dir: VER
     # 待机头像:无活跃 session 时显示的眨眼睛(count>0 时被 set_sessions 隐藏)
     - animimg:
         id: status_eyes
@@ -626,3 +672,52 @@ lvgl:
         border_color: 0xFFB74D
         border_width: 10
         border_opa: 0
+    # 屏保覆盖层(置顶默认隐藏):大眼睛复用待机眼帧 transform_scale 放大(零 flash);
+    # 点任意处本地隐藏并 publish screensaver_wake 回传 bridge
+    - button:
+        id: saver
+        align: CENTER
+        width: 100%
+        height: 100%
+        bg_color: 0x05070D
+        bg_opa: 100%
+        radius: 0
+        border_width: 0
+        pad_all: 0
+        hidden: true
+        on_click:
+          - lambda: 'id(wake_seq) += 1; id(screensaver_wake).publish_state(id(wake_seq));'
+          - lvgl.widget.hide: saver
+          - lvgl.animimg.stop: saver_eyes
+          - lvgl.resume:
+          - lvgl.widget.redraw:
+        widgets:
+          - animimg:
+              id: saver_eyes
+              align: TOP_LEFT
+              x: 61
+              y: 96
+              src: [eye_00, eye_01, eye_02, eye_03, eye_04, eye_05, eye_06, eye_07, eye_08, eye_09, eye_10, eye_11, eye_12, eye_13, eye_14, eye_15, eye_16]
+              duration: 3400ms
+              repeat_count: forever
+              auto_start: false
+              transform_pivot_x: 0
+              transform_pivot_y: 0
+              transform_scale: 2.8
+          - label:
+              id: saver_line
+              align: TOP_MID
+              y: 292
+              width: 440
+              text_align: CENTER
+              long_mode: WRAP
+              text_font: font_sm
+              text_color: 0xC2CEDC
+              text: ""
+          - label:
+              id: saver_hint
+              align: BOTTOM_MID
+              y: -30
+              text_font: font_sm
+              text_color: 0x5E7088
+              text: ""

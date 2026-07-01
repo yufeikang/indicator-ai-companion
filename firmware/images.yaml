@@ -1,6 +1,3 @@
-- file: "images/bg.png"
-  id: bg_image
-  type: RGB565
 - file: "images/eye/eye_00.png"
   id: eye_00
   type: RGB565

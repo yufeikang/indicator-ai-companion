@@ -14,6 +14,7 @@
   そのセッションに切り替わる(画面はタッチ対応;タップは device↔bridge のローカル閉ループで、Claude Code には戻さない)。
 - **AI コンパニオンカード** — アクティブなセッションが無い時にローカル/LAN の LLM が短く温かい一言を生成。
   デバイスの物理ボタンを押すと別のカードに切り替わる。
+- **スクリーンセーバー** — 最後の Claude 活動から `SCREENSAVER_SECONDS`(既定 300 秒)動きが無いと、画面全体が瞬きする大きな目 + 茶目っ気のある一言(LLM 生成、失敗時は内蔵文言)に。画面のどこかをタップで復帰。「needs you」アラート保留中は起動せず、緊急表示を隠さない。
 - **多言語** — UI とコンパニオンの文言を環境変数 `BRIDGE_LANG` 一つで `zh` / `en` に切り替え。
   言語の追加も容易。
 
@@ -33,8 +34,8 @@ flowchart LR
     CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(session_id 付き)" --> BR
     BR -- "prompt(アイドル時)" --> LLM
     LLM -- "コンパニオンカード" --> BR
-    BR -- "ESPHome ネイティブ API(暗号化)<br/>show_card · set_sessions · set_metrics" --> DEV
-    DEV -- "ボタン / アイコンのタップ (state)" --> BR
+    BR -- "ESPHome ネイティブ API(暗号化)<br/>show_card · set_sessions · set_metrics · set_screensaver" --> DEV
+    DEV -- "ボタン / アイコンのタップ / スクリーンセーバー復帰 (state)" --> BR
 ```
 
 LLM はすべてデバイス外で動作する(ボードの性能では動かせない)。デバイスは表示・タッチ・状態報告のみ。
@@ -104,8 +105,8 @@ uv run --with esphome esphome run indicator-companion.yaml --device /dev/cu.usbs
 初回は USB 経由で書き込む必要がある(約 30 秒、最も安定)。以降は接続が良好なら WiFi 経由の OTA が使える:
 `--device <デバイスIP>`。
 
-> `show_card` の引数を変更した場合(本バージョンで `status` を追加)、デバイスと bridge を同期させるため
-> 再書き込みすること。
+> デバイス側 API を変更した場合(本バージョンで `set_screensaver` アクションと `screensaver_wake`
+> センサーを追加)、デバイスと bridge を同期させるため再書き込みすること。
 
 ### 2. bridge の起動
 

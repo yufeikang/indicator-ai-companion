@@ -18,6 +18,7 @@ class Config:
     companion_api_key: str | None
     idle_seconds: float
     companion_interval: float
+    screensaver_seconds: float
 
 
 def load_config() -> Config:
@@ -39,4 +40,6 @@ def load_config() -> Config:
         companion_api_key=os.environ.get("COMPANION_API_KEY") or None,
         idle_seconds=float(os.environ.get("IDLE_SECONDS", "90")),
         companion_interval=float(os.environ.get("COMPANION_INTERVAL", "300")),
+        # 距最后一次 Claude hook 事件多久无活动后进入全屏大眼睛屏保(点屏唤醒)
+        screensaver_seconds=float(os.environ.get("SCREENSAVER_SECONDS", "300")),
     )

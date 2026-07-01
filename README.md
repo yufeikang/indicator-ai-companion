@@ -15,6 +15,10 @@ dark ambient UI.
   loop is device↔bridge only — it does not feed back into Claude Code).
 - **AI companion cards** — when no session is active, a local/LAN LLM generates a short
   warm or witty line; press the device button to swap to a fresh one.
+- **Screensaver** — after `SCREENSAVER_SECONDS` (default 300s) with no Claude activity, the
+  screen turns into full-screen blinking eyes with one cheeky line (LLM-generated, with a
+  built-in fallback). Tap anywhere to wake. It won't kick in while a "needs you" prompt is
+  pending, so urgent alerts are never hidden.
 - **Multi-language** — UI and companion text switch between `zh` / `en` via one env var
   (`BRIDGE_LANG`), and the design makes adding more languages easy.
 
@@ -34,8 +38,8 @@ flowchart LR
     CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(carries session_id)" --> BR
     BR -- "prompt (when idle)" --> LLM
     LLM -- "companion card" --> BR
-    BR -- "ESPHome native API (encrypted)<br/>show_card · set_sessions · set_metrics" --> DEV
-    DEV -- "button / icon tap (state)" --> BR
+    BR -- "ESPHome native API (encrypted)<br/>show_card · set_sessions · set_metrics · set_screensaver" --> DEV
+    DEV -- "button / icon tap / screensaver wake (state)" --> BR
 ```
 
 All LLM work runs off-device (the board can't host it). The device only displays,
@@ -107,8 +111,8 @@ uv run --with esphome esphome run indicator-companion.yaml --device /dev/cu.usbs
 First flash must be over USB (~30s, most reliable). After that, OTA over WiFi works
 when the link is good: `--device <device-ip>`.
 
-> If you change `show_card`'s arguments (this version added `status`), reflash so the
-> device and bridge stay in sync.
+> When the device-side API changes (this version added the `set_screensaver` action and a
+> `screensaver_wake` sensor), reflash so the device and bridge stay in sync.
 
 ### 2. Run the bridge
 

@@ -69,12 +69,14 @@ session C ─┘                          │      └─show_card(焦点 sessio
   不在本组件范围。
 - **生命周期**:`session-end` hook 即时移除;另有 `SESSION_TTL` 兜底过期清理。无活跃 session 时
   图标条隐藏、改显待机眨眼睛 + 伴侣卡。
+- **屏保**:距最后活动超 `SCREENSAVER_SECONDS`(默认 300s)且无 needs-you 告警时,`set_screensaver`
+  推全屏大眼睛(待机眼帧 `transform_scale` 放大,零额外 flash)+ 俏皮话;任何 hook 或点屏(`screensaver_wake`)退出。
 
 ## 接口演进
 
 - 保留 `show_card(status,mood,title,body,footer)` 推焦点内容、`set_sessions(...)` 推图标条。
 - 动画**不新增网络帧接口**;`status` 字段即动画触发器——固件按 status 切换配色/呼吸。
-- 触摸输入经 `selected_session` 传感器状态上报(复用 ESPHome `subscribe_states`,与物理刷新键同机制)。
+- 触摸输入经 `selected_session` / `screensaver_wake` 传感器状态上报(复用 ESPHome `subscribe_states`,与物理刷新键同机制)。
 
 ## 建议落地顺序
 

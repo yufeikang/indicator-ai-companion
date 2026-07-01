@@ -11,6 +11,7 @@
   **Claude 星芒图标**(最多 4 个)。该会话工作时星芒**呼吸**,图标下方的项目名按状态上色。
   **点一下图标**即把详情卡切到那个会话(屏幕可触摸;点选只在设备↔bridge 本地闭环,不回传 Claude Code)。
 - **AI 伴侣卡片**:无活跃会话时由本地/局域网大模型生成一句温暖或机智的话;按一下设备实体键立刻换一张。
+- **屏幕保护**:距上次 Claude 活动超过 `SCREENSAVER_SECONDS`(默认 300s)无动作,整屏变成眨巴的大眼睛 + 一句俏皮话(大模型现编,失败回退内置文案),点屏幕任意处唤醒。有「需要你」告警待处理时不进屏保,紧急提示不会被盖住。
 - **多语言**:UI 与伴侣卡文案通过一个环境变量(`BRIDGE_LANG`)在 `zh` / `en` 间切换,新增语言也方便。
 
 ## 演示
@@ -29,8 +30,8 @@ flowchart LR
     CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(带 session_id)" --> BR
     BR -- "prompt(空闲时)" --> LLM
     LLM -- "伴侣卡" --> BR
-    BR -- "ESPHome 原生 API(加密)<br/>show_card · set_sessions · set_metrics" --> DEV
-    DEV -- "实体键 / 图标点选(state)" --> BR
+    BR -- "ESPHome 原生 API(加密)<br/>show_card · set_sessions · set_metrics · set_screensaver" --> DEV
+    DEV -- "实体键 / 图标点选 / 屏保唤醒(state)" --> BR
 ```
 
 LLM 全跑在设备之外(设备算力不够)。设备只负责显示 + 触摸 + 上报状态。bridge 按 `session_id`
@@ -97,7 +98,7 @@ uv run --with esphome esphome run indicator-companion.yaml --device /dev/cu.usbs
 
 首次必须 USB 烧录(~30s,最稳);之后 WiFi 好时可走 OTA:`--device <设备IP>`。
 
-> 改了 `show_card` 的参数(本版新增了 `status`)就要重刷一次,保证设备与 bridge 同步。
+> 设备端 API 变了(本版新增 `set_screensaver` action 与 `screensaver_wake` 传感器)就要重刷一次,保证设备与 bridge 同步。
 
 ### 2. 起 bridge
 

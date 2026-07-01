@@ -7,8 +7,9 @@
   - `show_card(status,mood,title,body,footer)` — 焦点 session 的详情卡。`status` 是语言无关语义键(run/think/wait/done/ready/online),驱动配色;`mood/title/body` 是本地化文案。
   - `set_metrics(metrics)` — 右下角会话指标(context/5h limit)。
   - `set_sessions(count,focus,sN_status,sN_label)` — 顶部多 session 图标条(最多 4 槽)。每槽是 **Claude 官方星芒 mark**(`images/claude/`,取自 `claude-logo.svg`),固定品牌色 `0xD97757`;run/think 时呼吸+满亮、其余静止变暗;状态色体现在图标下方项目名文字上;`focus` 标记详情卡当前所示槽位(下方高亮条)。
-  - 触摸:每槽是可点 `button`,点击 publish `selected_session`(值=tap_seq*4+槽位,自增以强制上报),bridge 据此切换焦点。**触摸只在设备↔bridge 本地闭环、不回传 Claude Code**(内置 AskUserQuestion 无法被 hook 注入答案;要双向作答得另起自建 MCP 工具)。
-- `bridge/` — Python daemon(Docker 常驻)。按 `session_id` 维护多 session 注册表(`app.py` SessionState),渲染图标条 + 焦点详情卡;焦点默认跟随最近活跃、手点某槽则钉住(PIN_TTL);`session-end` / SESSION_TTL 过期清理。仅无活跃 session 时调 OpenAI 兼容端点出伴侣卡;收 statusLine 指标。文案语言由 `BRIDGE_LANG`(zh/en)控制,字符串表在 `indicator_bridge/i18n.py`。
+  - `set_screensaver(active,line,hint)` — 全屏屏保层(置顶覆盖)。大眼睛复用待机眼帧靠 `transform_scale` 放大(零额外 flash,固件 app 分区仅剩 ~230KB,装不下新帧);`line` 是俏皮话、`hint` 是唤醒提示。
+  - 触摸:每槽是可点 `button`,点击 publish `selected_session`(值=tap_seq*4+槽位,自增以强制上报),bridge 据此切换焦点。屏保层点任意处本地隐藏并 publish `screensaver_wake`(同样自增)。**触摸只在设备↔bridge 本地闭环、不回传 Claude Code**(内置 AskUserQuestion 无法被 hook 注入答案;要双向作答得另起自建 MCP 工具)。
+- `bridge/` — Python daemon(Docker 常驻)。按 `session_id` 维护多 session 注册表(`app.py` SessionState),渲染图标条 + 焦点详情卡;焦点默认跟随最近活跃、手点某槽则钉住(PIN_TTL);`session-end` / SESSION_TTL 过期清理。仅无活跃 session 时调 OpenAI 兼容端点出伴侣卡;收 statusLine 指标。距最后活动超过 `SCREENSAVER_SECONDS`(默认 300s)且无 needs-you 告警时进屏保,俏皮话优先 `companion.generate_line()` 现编、失败回退 `i18n` 内置文案;任何 hook 事件或点屏唤醒退出。文案语言由 `BRIDGE_LANG`(zh/en)控制,字符串表在 `indicator_bridge/i18n.py`。
 - `hooks/` — `push-event.sh`(hook→bridge,fire-and-forget)、`statusline-wrapper.sh`(包装 claude-hud + 推 metrics)。订阅 SessionStart/UserPromptSubmit/PreToolUse/Notification/Stop/**SessionEnd**。
 
 ## 常用命令

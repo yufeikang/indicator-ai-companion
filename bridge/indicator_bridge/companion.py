@@ -37,6 +37,18 @@ Use plain English. No markdown, no extra text, just that JSON object."""
 
 SYSTEM = {"zh": SYSTEM_ZH, "en": SYSTEM_EN}
 
+SAVER_SYS = {
+    "zh": "你是一块桌面小屏上的 AI 伴侣。主人已经好一会儿没理你了,你睁着一双大眼睛,有点无聊又有点调皮。",
+    "en": "You're an AI companion on a tiny desk screen. Your human has ignored you for a "
+          "while; you're wide-eyed, a bit bored and mischievous.",
+}
+SAVER_USER = {
+    "zh": "说一句调皮、轻松的话催主人回来,或自言自语犯困装睡。只回一句,不超过 16 个汉字,"
+          "用简体中文常用字,不要 emoji、不要引号、不要解释。/no_think",
+    "en": "Say one playful, light line to lure them back, or mutter sleepily. One line only, "
+          "<= 40 characters, plain English, no emoji, no quotes, no explanation. /no_think",
+}
+
 _TRIGGER = {
     "zh": {"idle": "空闲", "button": "按下按钮"},
     "en": {"idle": "idle", "button": "button press"},
@@ -122,4 +134,35 @@ class Companion:
             )
         except Exception:
             log.exception("companion generate failed")
+            return None
+
+    async def generate_line(self) -> str | None:
+        """屏保俏皮话:让模型现编一句话(纯文本),失败返回 None 由上层回退内置文案。"""
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": SAVER_SYS[self.lang]},
+                {"role": "user", "content": SAVER_USER[self.lang]},
+            ],
+            "max_tokens": 120,
+            "temperature": 1.0,
+        }
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=self._headers(),
+                ) as resp:
+                    if resp.status != 200:
+                        log.warning("companion line HTTP %s", resp.status)
+                        return None
+                    data = await resp.json()
+            text = data["choices"][0]["message"]["content"]
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+            line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+            return line.strip("\"'“”「」 ") or None
+        except Exception:
+            log.exception("companion generate_line failed")
             return None

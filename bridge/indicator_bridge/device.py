@@ -13,19 +13,23 @@ log = logging.getLogger("indicator.device")
 class Indicator:
     """维持与 Indicator 的 ESPHome 原生 API 长连接,推送卡片/图标条、监听按钮与触摸点选。"""
 
-    def __init__(self, host: str, noise_psk: str, on_button=None, on_select=None, on_connect=None) -> None:
+    def __init__(self, host: str, noise_psk: str, on_button=None, on_select=None, on_connect=None, on_wake=None) -> None:
         self.host = host
         self.noise_psk = noise_psk
         self.on_button = on_button
         self.on_select = on_select
         self.on_connect = on_connect
+        self.on_wake = on_wake
         self._connected = asyncio.Event()
         self._show_card = None
         self._set_metrics = None
         self._set_sessions = None
+        self._set_screensaver = None
         self._button_keys: set[int] = set()
         self._select_key: int | None = None
         self._last_select_val: float | None = None
+        self._wake_key: int | None = None
+        self._last_wake_val: float | None = None
         self._client: APIClient | None = None
         self._azc: AsyncZeroconf | None = None
         self._reconnect: ReconnectLogic | None = None
@@ -52,6 +56,7 @@ class Indicator:
             self._show_card = next((s for s in services if s.name == "show_card"), None)
             self._set_metrics = next((s for s in services if s.name == "set_metrics"), None)
             self._set_sessions = next((s for s in services if s.name == "set_sessions"), None)
+            self._set_screensaver = next((s for s in services if s.name == "set_screensaver"), None)
             self._button_keys = {
                 e.key for e in entities
                 if getattr(e, "object_id", "") == "refresh_button"
@@ -61,6 +66,12 @@ class Indicator:
                 (e.key for e in entities
                  if getattr(e, "object_id", "") == "selected_session"
                  or getattr(e, "name", "") == "Selected Session"),
+                None,
+            )
+            self._wake_key = next(
+                (e.key for e in entities
+                 if getattr(e, "object_id", "") == "screensaver_wake"
+                 or getattr(e, "name", "") == "Screensaver Wake"),
                 None,
             )
             self._client.subscribe_states(self._on_state)
@@ -102,6 +113,15 @@ class Indicator:
             # publish 值 = tap_seq*MAX_SLOTS + 槽位(乘数须与固件一致)
             idx = int(round(val)) % MAX_SLOTS
             asyncio.get_running_loop().create_task(self._safe_select(idx))
+            return
+        if key is not None and key == self._wake_key and self.on_wake:
+            val = getattr(state, "state", None)
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                return
+            if val == self._last_wake_val:
+                return
+            self._last_wake_val = val
+            asyncio.get_running_loop().create_task(self._safe_wake())
 
     async def _safe_button(self) -> None:
         try:
@@ -114,6 +134,12 @@ class Indicator:
             await self.on_select(idx)
         except Exception:
             log.exception("on_select handler failed")
+
+    async def _safe_wake(self) -> None:
+        try:
+            await self.on_wake()
+        except Exception:
+            log.exception("on_wake handler failed")
 
     async def show_card(self, card: Card) -> None:
         # 未连接时直接丢弃,绝不阻塞调用方(hook 推送链路)
@@ -147,3 +173,15 @@ class Indicator:
                 await res
         except Exception:
             log.exception("execute_service set_sessions failed")
+
+    async def set_screensaver(self, active: bool, line: str = "", hint: str = "") -> None:
+        if not self._connected.is_set() or not self._set_screensaver:
+            return
+        try:
+            res = self._client.execute_service(
+                self._set_screensaver, {"active": active, "line": line, "hint": hint}
+            )
+            if asyncio.iscoroutine(res):
+                await res
+        except Exception:
+            log.exception("execute_service set_screensaver failed")

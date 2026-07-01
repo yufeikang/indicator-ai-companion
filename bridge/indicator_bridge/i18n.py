@@ -38,6 +38,8 @@ class Strings:
     title_button_tap: str
     body_companion_offline: str
     fallback_project: str
+    screensaver_hint: str
+    screensaver_lines: tuple[str, ...]
 
 
 ZH = Strings(
@@ -62,6 +64,16 @@ ZH = Strings(
     title_button_tap="点了一下",
     body_companion_offline="伴侣端点离线",
     fallback_project="Claude Code",
+    screensaver_hint="轻触唤醒",
+    screensaver_lines=(
+        "主人去哪了,我眼睛都看酸了",
+        "再不回来,我就要打瞌睡了",
+        "偷偷溜走了?我可盯着呢",
+        "无聊到开始数自己眨了几次眼",
+        "摸鱼时间到,要不要一起",
+        "我先眯一会,你别走远",
+        "屏幕都凉了,快回来暖暖",
+    ),
 )
 
 EN = Strings(
@@ -86,6 +98,16 @@ EN = Strings(
     title_button_tap="Tapped",
     body_companion_offline="Companion endpoint offline",
     fallback_project="Claude Code",
+    screensaver_hint="Tap to wake",
+    screensaver_lines=(
+        "Where'd you go? My eyes went dry",
+        "Come back or I'll doze right off",
+        "Sneaking away? I'm watching you",
+        "So bored I counted my own blinks",
+        "Break time. Care to join me?",
+        "Just resting my eyes, don't wander far",
+        "Screen's gone cold, come warm it up",
+    ),
 )
 
 TABLE: dict[str, Strings] = {"zh": ZH, "en": EN}
