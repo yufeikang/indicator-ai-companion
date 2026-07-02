@@ -22,6 +22,13 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh post-tool" }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [

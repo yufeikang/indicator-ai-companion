@@ -136,8 +136,9 @@ class Bridge:
         if sess is None:
             sess = SessionState(sid=sid, first_seen=now, last_seen=now)
 
+        prev_status = sess.status
         sess.stats.observe(event, payload)
-        card = render_hook(event, payload, sess.stats, self.strings)
+        card = render_hook(event, payload, sess.stats, self.strings, prev_status)
 
         # 不出卡的新 session 不登记,避免幽灵槽位
         if card is None and not existed and not sess.status:
@@ -168,28 +169,24 @@ class Bridge:
         await self._push()
 
     async def on_button(self) -> None:
-        # 物理刷新键 -> 伴侣卡,立即显示
-        log.info("button pressed -> companion card")
-        self.last_wake = time.monotonic()
+        # 物理键智能切换:屏保中 -> 醒(退屏保);待机 -> 睡(进屏保)。都由 bridge 统一控制。
         if self.screensaver_on:
+            log.info("button -> wake (exit screensaver)")
+            self.last_wake = time.monotonic()
             await self._exit_screensaver()
-        s = self.strings
-        card = await self.companion.generate(trigger="button")
-        if card:
-            self.last_companion = time.monotonic()  # 仅成功才消费冷却
-            self.idle_card = card
+            await self._push()
         else:
-            self.idle_card = Card(
-                s.mood_hello, s.title_button_tap, s.body_companion_offline, ""
-            )
-        self._last_card_data = self.idle_card.to_data()
-        await self.device.show_card(self.idle_card)
+            log.info("button -> sleep (enter screensaver)")
+            # 用当前伴侣卡 body 即时进屏保,再后台现编一句刷新(避免按下等 LLM)
+            await self._enter_screensaver(fresh=False)
+            asyncio.get_running_loop().create_task(self._refresh_saver_line())
 
     async def on_wake(self) -> None:
-        # 点屏唤醒:固件已本地隐藏覆盖层,这里只重置计时,避免立刻又进屏保
+        # 点屏唤醒:固件已本地隐藏覆盖层,这里重置计时并刷新待机卡
         log.info("touch wake -> exit screensaver")
         self.last_wake = time.monotonic()
         self.screensaver_on = False
+        await self._push()
 
     async def on_connect(self) -> None:
         # 重连后设备覆盖层默认隐藏,清缓存强制全量重推
@@ -229,24 +226,47 @@ class Bridge:
         long_idle = (now - idle_ref) >= self.cfg.screensaver_seconds
         if waiting and self.screensaver_on:
             await self._exit_screensaver()
+            await self._push()
+            return
         if waiting or not long_idle:
             return
         if not self.screensaver_on or (now - self.last_saver_line) >= SAVER_LINE_TTL:
-            await self._enter_screensaver()
+            await self._enter_screensaver(fresh=True)
 
-    async def _enter_screensaver(self) -> None:
-        line = await self.companion.generate_line() or ""
-        # generate_line 可能耗时数秒,期间若有新活动/告警则放弃进屏保
-        now = time.monotonic()
-        idle_ref = max(self.last_event, self.last_wake, self.started_at)
-        if (now - idle_ref) < self.cfg.screensaver_seconds:
-            return
-        if any(s.status == STATUS_WAIT for s in self._active(now)):
-            return
-        line = sanitize_text(line)[:40] or random.choice(self.strings.screensaver_lines)
+    def _saver_line(self) -> str:
+        # 屏保俏皮话 = 伴侣卡正文(与待机同一条 LLM 生成路径);无卡则回退内置文案
+        body = self.idle_card.body if self.idle_card else ""
+        return sanitize_text(body or "")[:80] or random.choice(self.strings.screensaver_lines)
+
+    async def _enter_screensaver(self, fresh: bool = True) -> None:
+        # fresh=True:先现编一张新伴侣卡(自动超时/换句场景,可容忍数秒延迟),
+        #   期间若有新活动/告警则放弃;fresh=False:用当前卡即时进入(按钮场景,零等待)。
+        if fresh:
+            card = await self.companion.generate(trigger="idle")
+            now = time.monotonic()
+            idle_ref = max(self.last_event, self.last_wake, self.started_at)
+            if not self.screensaver_on and (now - idle_ref) < self.cfg.screensaver_seconds:
+                return
+            if any(s.status == STATUS_WAIT for s in self._active(now)):
+                return
+            if card:
+                self.idle_card = card
+                self.last_companion = now
+                self._last_card_data = card.to_data()
         self.screensaver_on = True
-        self.last_saver_line = now
-        await self.device.set_screensaver(True, line, self.strings.screensaver_hint)
+        self.last_saver_line = time.monotonic()
+        await self.device.set_screensaver(True, self._saver_line(), self.strings.screensaver_hint)
+
+    async def _refresh_saver_line(self) -> None:
+        # 按钮即时进屏保后,后台现编一句刷新(仍在屏保时才推)
+        card = await self.companion.generate(trigger="idle")
+        if not card or not self.screensaver_on:
+            return
+        self.idle_card = card
+        self.last_companion = time.monotonic()
+        self.last_saver_line = self.last_companion
+        self._last_card_data = card.to_data()
+        await self.device.set_screensaver(True, self._saver_line(), self.strings.screensaver_hint)
 
     async def _exit_screensaver(self) -> None:
         if not self.screensaver_on:

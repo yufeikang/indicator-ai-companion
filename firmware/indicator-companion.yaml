@@ -12,6 +12,11 @@ esp32:
   flash_size: 8MB
   framework:
     type: esp-idf
+    # loopTask 默认栈 8KB，装不下嵌套 LVGL 眼睛(obj 多层 + 渐变)样式刷新的深递归，
+    # 叠加 API 首连时 ComponentIterator 遍历实体 → 栈溢出复位(会连带冲坏 API 迭代器内存
+    # 触发 LoadProhibited)。提到 32KB(该选项上限)留足余量。静态栈仅多占 ~24KB SRAM。
+    advanced:
+      loop_task_stack_size: 32768
     sdkconfig_options:
       CONFIG_ESPTOOLPY_FLASHSIZE_8MB: y
       CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: y
@@ -106,9 +111,15 @@ api:
             condition:
               lambda: 'return count > 0;'
             then:
-              - lvgl.widget.hide: status_eyes
+              - lvgl.widget.hide: standby_eyes
+              - globals.set:
+                  id: standby_active
+                  value: 'false'
             else:
-              - lvgl.widget.show: status_eyes
+              - lvgl.widget.show: standby_eyes
+              - globals.set:
+                  id: standby_active
+                  value: 'true'
         # ---- slot 0 ----
         - if:
             condition:
@@ -273,16 +284,14 @@ api:
             condition:
               lambda: 'return active;'
             then:
-              - lvgl.animimg.start: saver_eyes
-              - lvgl.widget.show: saver
-              - light.turn_on: backlight
-              - lvgl.resume:
-              - lvgl.widget.redraw:
+              # 仅首次进入才复位眼睛+显示;已在屏保中则上面的 label 更新即换新俏皮话
+              - if:
+                  condition:
+                    lambda: 'return !id(saver_active);'
+                  then:
+                    - script.execute: enter_saver
             else:
-              - lvgl.widget.hide: saver
-              - lvgl.animimg.stop: saver_eyes
-              - lvgl.resume:
-              - lvgl.widget.redraw:
+              - script.execute: exit_saver
 
 i2c:
   - id: bus_a
@@ -335,11 +344,7 @@ binary_sensor:
       inverted: true
     name: Refresh Button
     id: refresh_button
-    on_press:
-      then:
-        - lvgl.label.update:
-            id: lbl_footer
-            text: "…"
+    # 按下仅经 API binary_sensor 上报 bridge;由 bridge on_button 智能切换屏保(待机→睡 / 屏保→醒)。
 
 # 触摸点选 session 用:每次点击递增,publish 值 = tap_seq*4 + 槽位索引。
 # 自增保证值每次都变(同槽连点也会上报),bridge 取 int(value)%4 还原槽位。
@@ -353,6 +358,16 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
+  # 屏保是否处于激活态:门控矢量大眼睛的动画 interval;进/出屏保都由脚本翻转
+  - id: saver_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # 待机小眼睛是否可见(count==0 时显示):门控其矢量动画,由 set_sessions 翻转
+  - id: standby_active
+    type: bool
+    restore_value: no
+    initial_value: 'true'
 
 sensor:
   - platform: template
@@ -365,6 +380,79 @@ sensor:
     id: screensaver_wake
     accuracy_decimals: 0
     update_interval: never
+
+# 屏保进/出统一走脚本:翻转 saver_active、复位眼睛姿态、显隐 saver 层
+script:
+  - id: enter_saver
+    then:
+      - globals.set:
+          id: saver_active
+          value: 'true'
+      - lambda: |-
+          // 复位到"睁眼居中":眼睑收起、瞳孔归中
+          lv_obj_set_height(id(top_lid), 0);
+          lv_obj_set_y(id(bottom_lid), 250);
+          lv_obj_set_height(id(bottom_lid), 0);
+          lv_obj_align(id(pupil_l), LV_ALIGN_CENTER, 0, 0);
+          lv_obj_align(id(pupil_r), LV_ALIGN_CENTER, 0, 0);
+      - lvgl.widget.show: saver
+      - light.turn_on: backlight
+      - lvgl.resume:
+      - lvgl.widget.redraw:
+  - id: exit_saver
+    then:
+      - globals.set:
+          id: saver_active
+          value: 'false'
+      - lvgl.widget.hide: saver
+      - lvgl.resume:
+      - lvgl.widget.redraw:
+
+# 矢量眼睛动画驱动:40ms/tick(25fps)。视线用缓动平滑滑向目标(自然扫视,非瞬移)+
+# 微抖动(别死盯);眨眼为快速三角波。同时驱动屏保大眼睛与待机小眼睛,各自按激活标志门控。
+# gaze 单位为 native ±7(与原 raster look_x 一致):大眼睛 ×20/7 放大,小眼睛原样。
+interval:
+  - interval: 40ms
+    then:
+      - lambda: |-
+          if (!id(saver_active) && !id(standby_active)) return;
+          static float gaze = 0.0f;   // 当前视线(缓动量)
+          static int t = 0;
+          const int PERIOD = 150;     // 150*40ms = 6.0s 一轮
+          t = (t + 1) % PERIOD;
+          float target = 0.0f;
+          if      (t < 35)  target = 0.0f;    // 居中
+          else if (t < 62)  target = -7.0f;   // 看左
+          else if (t < 82)  target = 0.0f;    // 回中
+          else if (t < 109) target = 7.0f;    // 看右
+          else              target = 0.0f;    // 回中(含眨眼)
+          gaze += (target - gaze) * 0.20f;                 // 缓动滑移
+          float g = gaze + 0.8f * sinf((float)t * 0.07f);  // 叠加微抖动
+          float op = 1.0f;            // 睁开度:1=全睁
+          if (t >= 128 && t < 140) {  // 眨眼窗口 ~480ms
+            int b = t - 128;
+            op = (b < 6) ? (1.0f - b / 5.0f) : ((b - 6) / 5.0f);
+            if (op < 0.05f) op = 0.05f;
+            if (op > 1.0f)  op = 1.0f;
+          }
+          if (id(saver_active)) {
+            int h = (int)((1.0f - op) * 64.0f + 0.5f);
+            int lx = (int)(g * 20.0f / 7.0f + (g >= 0 ? 0.5f : -0.5f));
+            lv_obj_set_height(id(top_lid), h);
+            lv_obj_set_y(id(bottom_lid), 250 - h);
+            lv_obj_set_height(id(bottom_lid), h);
+            lv_obj_align(id(pupil_l), LV_ALIGN_CENTER, lx, 0);
+            lv_obj_align(id(pupil_r), LV_ALIGN_CENTER, lx, 0);
+          }
+          if (id(standby_active)) {
+            int h2 = (int)((1.0f - op) * 22.0f + 0.5f);
+            int lx2 = (int)(g + (g >= 0 ? 0.5f : -0.5f));
+            lv_obj_set_height(id(top_lid_sm), h2);
+            lv_obj_set_y(id(bottom_lid_sm), 80 - h2);
+            lv_obj_set_height(id(bottom_lid_sm), h2);
+            lv_obj_align(id(pupil_l_sm), LV_ALIGN_CENTER, lx2, 0);
+            lv_obj_align(id(pupil_r_sm), LV_ALIGN_CENTER, lx2, 0);
+          }
 
 image: !include images.yaml
 
@@ -404,18 +492,159 @@ lvgl:
         bg_color: 0x102A3A
         bg_grad_color: 0x05070D
         bg_grad_dir: VER
-    # 待机头像:无活跃 session 时显示的眨眼睛(count>0 时被 set_sessions 隐藏)
-    - animimg:
-        id: status_eyes
+    # 待机头像:矢量小眼睛(与屏保大眼睛同款,缩到 ~0.34×)。count>0 时被 set_sessions 隐藏。
+    # 容器置于 (0,0),子件坐标即屏幕坐标;眼中心左(68,58)/右(116,58),半径 22。
+    - obj:
+        id: standby_eyes
         align: TOP_LEFT
-        x: 28
-        y: 26
-        src: [eye_00, eye_01, eye_02, eye_03, eye_04, eye_05, eye_06, eye_07, eye_08, eye_09, eye_10, eye_11, eye_12, eye_13, eye_14, eye_15, eye_16]
-        duration: 3000ms
-        repeat_count: forever
-        auto_start: true
-        image_recolor: 0xFFB74D
-        image_recolor_opa: 0
+        x: 0
+        y: 0
+        width: 200
+        height: 110
+        bg_opa: 0
+        radius: 0
+        border_width: 0
+        pad_all: 0
+        clickable: false
+        widgets:
+          - obj:
+              id: eye_l_sm
+              align: TOP_LEFT
+              x: 46
+              y: 36
+              width: 44
+              height: 44
+              radius: 22
+              bg_color: 0x8FD8F5
+              bg_grad_color: 0x1E6FB4
+              bg_grad_dir: VER
+              border_width: 0
+              pad_all: 0
+              clickable: false
+              widgets:
+                - obj:
+                    align: CENTER
+                    width: 32
+                    height: 32
+                    radius: 16
+                    bg_color: 0x4FB0E6
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    align: CENTER
+                    width: 20
+                    height: 20
+                    radius: 10
+                    bg_color: 0xBFEFFF
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    id: pupil_l_sm
+                    align: CENTER
+                    width: 16
+                    height: 16
+                    radius: 8
+                    bg_color: 0x0A1628
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                    widgets:
+                      - obj:
+                          align: CENTER
+                          x: -6
+                          y: -6
+                          width: 8
+                          height: 8
+                          radius: 4
+                          bg_color: 0xFFFFFF
+                          bg_opa: 90%
+                          border_width: 0
+                          pad_all: 0
+                          clickable: false
+          - obj:
+              id: eye_r_sm
+              align: TOP_LEFT
+              x: 94
+              y: 36
+              width: 44
+              height: 44
+              radius: 22
+              bg_color: 0x8FD8F5
+              bg_grad_color: 0x1E6FB4
+              bg_grad_dir: VER
+              border_width: 0
+              pad_all: 0
+              clickable: false
+              widgets:
+                - obj:
+                    align: CENTER
+                    width: 32
+                    height: 32
+                    radius: 16
+                    bg_color: 0x4FB0E6
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    align: CENTER
+                    width: 20
+                    height: 20
+                    radius: 10
+                    bg_color: 0xBFEFFF
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    id: pupil_r_sm
+                    align: CENTER
+                    width: 16
+                    height: 16
+                    radius: 8
+                    bg_color: 0x0A1628
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                    widgets:
+                      - obj:
+                          align: CENTER
+                          x: -6
+                          y: -6
+                          width: 8
+                          height: 8
+                          radius: 4
+                          bg_color: 0xFFFFFF
+                          bg_opa: 90%
+                          border_width: 0
+                          pad_all: 0
+                          clickable: false
+          - obj:
+              id: top_lid_sm
+              align: TOP_LEFT
+              x: 44
+              y: 36
+              width: 96
+              height: 0
+              bg_color: 0x102A3A
+              bg_opa: 100%
+              radius: 0
+              border_width: 0
+              pad_all: 0
+              clickable: false
+          - obj:
+              id: bottom_lid_sm
+              align: TOP_LEFT
+              x: 44
+              y: 80
+              width: 96
+              height: 0
+              bg_color: 0x102A3A
+              bg_opa: 100%
+              radius: 0
+              border_width: 0
+              pad_all: 0
+              clickable: false
     # 顶部 session 图标条:4 个可点槽位(Claude 星芒 + 项目名),默认隐藏,由 set_sessions 驱动。
     # 点击 -> 自增 tap_seq、publish selected_session(*4+索引),bridge 据此切换详情卡焦点。
     - button:
@@ -687,23 +916,150 @@ lvgl:
         hidden: true
         on_click:
           - lambda: 'id(wake_seq) += 1; id(screensaver_wake).publish_state(id(wake_seq));'
-          - lvgl.widget.hide: saver
-          - lvgl.animimg.stop: saver_eyes
-          - lvgl.resume:
-          - lvgl.widget.redraw:
+          - script.execute: exit_saver
         widgets:
-          - animimg:
-              id: saver_eyes
+          # 矢量大眼睛(LVGL 图元,分辨率无关,零 raster flash):
+          # 每只眼 = 外圈深青虹膜(渐变球感) + 中/内亮圈(伪径向渐变) + 深瞳孔 + 白高光;
+          # 上下两条 bg 色眼睑靠 interval 改高度实现眨眼。设计中心左(173,186)/右(307,186),半径 64。
+          - obj:
+              id: eye_l
               align: TOP_LEFT
-              x: 61
-              y: 96
-              src: [eye_00, eye_01, eye_02, eye_03, eye_04, eye_05, eye_06, eye_07, eye_08, eye_09, eye_10, eye_11, eye_12, eye_13, eye_14, eye_15, eye_16]
-              duration: 3400ms
-              repeat_count: forever
-              auto_start: false
-              transform_pivot_x: 0
-              transform_pivot_y: 0
-              transform_scale: 2.8
+              x: 109
+              y: 122
+              width: 128
+              height: 128
+              radius: 64
+              bg_color: 0x8FD8F5
+              bg_grad_color: 0x1E6FB4
+              bg_grad_dir: VER
+              border_width: 0
+              pad_all: 0
+              clickable: false
+              widgets:
+                - obj:
+                    align: CENTER
+                    width: 96
+                    height: 96
+                    radius: 48
+                    bg_color: 0x4FB0E6
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    align: CENTER
+                    width: 60
+                    height: 60
+                    radius: 30
+                    bg_color: 0xBFEFFF
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    id: pupil_l
+                    align: CENTER
+                    width: 44
+                    height: 44
+                    radius: 22
+                    bg_color: 0x0A1628
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                    widgets:
+                      - obj:
+                          align: CENTER
+                          x: -16
+                          y: -16
+                          width: 20
+                          height: 20
+                          radius: 10
+                          bg_color: 0xFFFFFF
+                          bg_opa: 90%
+                          border_width: 0
+                          pad_all: 0
+                          clickable: false
+          - obj:
+              id: eye_r
+              align: TOP_LEFT
+              x: 243
+              y: 122
+              width: 128
+              height: 128
+              radius: 64
+              bg_color: 0x8FD8F5
+              bg_grad_color: 0x1E6FB4
+              bg_grad_dir: VER
+              border_width: 0
+              pad_all: 0
+              clickable: false
+              widgets:
+                - obj:
+                    align: CENTER
+                    width: 96
+                    height: 96
+                    radius: 48
+                    bg_color: 0x4FB0E6
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    align: CENTER
+                    width: 60
+                    height: 60
+                    radius: 30
+                    bg_color: 0xBFEFFF
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                - obj:
+                    id: pupil_r
+                    align: CENTER
+                    width: 44
+                    height: 44
+                    radius: 22
+                    bg_color: 0x0A1628
+                    border_width: 0
+                    pad_all: 0
+                    clickable: false
+                    widgets:
+                      - obj:
+                          align: CENTER
+                          x: -16
+                          y: -16
+                          width: 20
+                          height: 20
+                          radius: 10
+                          bg_color: 0xFFFFFF
+                          bg_opa: 90%
+                          border_width: 0
+                          pad_all: 0
+                          clickable: false
+          # 上下眼睑:bg 色矩形,interval 改高度 0→64 合拢实现眨眼
+          - obj:
+              id: top_lid
+              align: TOP_LEFT
+              x: 100
+              y: 122
+              width: 288
+              height: 0
+              bg_color: 0x05070D
+              bg_opa: 100%
+              radius: 0
+              border_width: 0
+              pad_all: 0
+              clickable: false
+          - obj:
+              id: bottom_lid
+              align: TOP_LEFT
+              x: 100
+              y: 250
+              width: 288
+              height: 0
+              bg_color: 0x05070D
+              bg_opa: 100%
+              radius: 0
+              border_width: 0
+              pad_all: 0
+              clickable: false
           - label:
               id: saver_line
               align: TOP_MID

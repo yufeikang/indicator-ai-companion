@@ -138,9 +138,18 @@ class Stats:
             self.last_tool = payload.get("tool_name", "")
 
 
-def render_hook(event: str, payload: dict, stats: Stats, s: Strings) -> Card | None:
+def render_hook(
+    event: str, payload: dict, stats: Stats, s: Strings, prev_status: str = ""
+) -> Card | None:
     """把一个 Claude Code hook 事件渲染成一张 HUD 卡片(None 表示该事件不出卡)。"""
     footer = _footer(payload)
+
+    if event == "post-tool":
+        # 工具执行完(= 用户已确认权限 / 已回答提问)后最先触发的 hook。
+        # 仅当之前处于 wait 时用它及时清除告警,回到 think;否则不抢镜(避免每个工具都闪)。
+        if prev_status == STATUS_WAIT:
+            return Card(s.mood_think, s.title_thinking, s.body_got_request, footer, STATUS_THINK)
+        return None
 
     if event == "session-start":
         proj = _project(payload.get("cwd", "")) or s.fallback_project
