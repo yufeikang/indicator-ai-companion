@@ -1,52 +1,52 @@
 {
-  "_comment": "把下面的 hooks 块合并进 ~/.claude/settings.json,并把 /ABS/PATH/TO 换成本仓库的绝对路径。",
+  "_comment": "Claude Code: 把下面的 hooks 块合并进 ~/.claude/settings.json,并把 /ABS/PATH/TO 换成本仓库的绝对路径。",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-start" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-start claude" }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh user-prompt" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh user-prompt claude" }
         ]
       }
     ],
     "PreToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh pre-tool" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh pre-tool claude" }
         ]
       }
     ],
     "PostToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh post-tool" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh post-tool claude" }
         ]
       }
     ],
     "Notification": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh notification" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh notification claude" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh stop" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh stop claude" }
         ]
       }
     ],
     "SessionEnd": [
       {
         "hooks": [
-          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-end" }
+          { "type": "command", "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-end claude" }
         ]
       }
     ]

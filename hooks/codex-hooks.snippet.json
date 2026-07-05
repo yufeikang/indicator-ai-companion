@@ -1,0 +1,72 @@
+{
+  "_comment": "Codex: merge this hooks block into ~/.codex/hooks.json or a trusted project .codex/hooks.json, then replace /ABS/PATH/TO with this repo's absolute path. Codex does not currently emit SessionEnd; push-event.sh watches the Codex parent process and sends a synthetic session-end on exit, with SESSION_TTL as fallback.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh session-start codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh user-prompt codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh pre-tool codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh permission-request codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh post-tool codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /ABS/PATH/TO/indicator-ai-companion/hooks/push-event.sh stop codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

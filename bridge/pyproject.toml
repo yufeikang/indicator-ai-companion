@@ -1,7 +1,7 @@
 [project]
 name = "indicator-bridge"
 version = "0.1.0"
-description = "Mac-side bridge: Claude Code HUD + AI companion cards pushed to a Seeed SenseCAP Indicator over the ESPHome native API"
+description = "Mac-side bridge: Claude Code/Codex HUD + AI companion cards pushed to a Seeed SenseCAP Indicator over the ESPHome native API"
 requires-python = ">=3.11"
 dependencies = [
     "aioesphomeapi>=24.0.0",
@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 indicator-bridge = "indicator_bridge.__main__:main"
+indicator-bridge-demo = "indicator_bridge.demo:main"
 
 [build-system]
 requires = ["hatchling"]

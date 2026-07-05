@@ -3,41 +3,42 @@
 [English](README.md) · **简体中文** · [日本語](README.ja.md)
 
 把一台 **Seeed SenseCAP Indicator D1**(ESP32-S3 + 4″ 480×480 触摸屏)变成桌面上的
-**Claude Code 物理状态屏(HUD)+ AI 桌面伴侣**,深色氛围背景。
+**Claude Code / Codex 物理状态屏(HUD)+ AI 桌面伴侣**,深色氛围背景。
 
-- **Claude Code HUD**:通过 Claude Code 的 hooks,屏幕实时显示「我」在干嘛——
+- **Agent HUD**:通过 Claude Code 或 Codex 的 hooks,屏幕实时显示 agent 在干嘛——
   思考中 / 正在跑哪个工具 / 卡在等你确认 / 任务完成。
-- **多 session 图标条**:同时在多个终端跑 Claude Code,每个会话在顶部各占一个
-  **Claude 星芒图标**(最多 4 个)。该会话工作时星芒**呼吸**,图标下方的项目名按状态上色。
-  **点一下图标**即把详情卡切到那个会话(屏幕可触摸;点选只在设备↔bridge 本地闭环,不回传 Claude Code)。
+- **多 session 图标条**:同时在多个终端跑 Claude Code / Codex,每个会话在顶部各占一个
+  provider 图标(最多 4 个):Claude 会话显示 Claude 星芒,Codex 会话显示 Codex code mark。
+  该会话工作时图标**呼吸**,图标下方的项目名按状态上色。
+  **点一下图标**即把详情卡切到那个会话(屏幕可触摸;点选只在设备↔bridge 本地闭环,不回传 agent)。
 - **AI 伴侣卡片**:无活跃会话时由本地/局域网大模型生成一句温暖或机智的话;按一下设备实体键立刻换一张。
-- **屏幕保护**:距上次 Claude 活动超过 `SCREENSAVER_SECONDS`(默认 300s)无动作,整屏变成眨巴的大眼睛 + 一句俏皮话(大模型现编,失败回退内置文案),点屏幕任意处唤醒。有「需要你」告警待处理时不进屏保,紧急提示不会被盖住。
+- **屏幕保护**:距上次 agent 活动超过 `SCREENSAVER_SECONDS`(默认 300s)无动作,整屏变成眨巴的大眼睛 + 一句俏皮话(大模型现编,失败回退内置文案),点屏幕任意处唤醒。有「需要你」告警待处理时不进屏保,紧急提示不会被盖住。
 - **多语言**:UI 与伴侣卡文案通过一个环境变量(`BRIDGE_LANG`)在 `zh` / `en` 间切换,新增语言也方便。
 
 ## 演示
 
-![Indicator HUD 在各 Claude Code 状态间切换](docs/demo.gif)
+![Indicator HUD 在各 agent 状态间切换](docs/demo.gif)
 
 ## 工作原理
 
 ```mermaid
 flowchart LR
-    CC["Claude Code<br/>你的会话"]
+    AG["Claude Code / Codex<br/>你的会话"]
     BR["bridge<br/>Docker daemon"]
     LLM["OpenAI 兼容<br/>LLM 端点"]
     DEV["Indicator D1<br/>ESP32-S3 · LVGL"]
 
-    CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(带 session_id)" --> BR
+    AG -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(带 session_id/thread_id)" --> BR
     BR -- "prompt(空闲时)" --> LLM
     LLM -- "伴侣卡" --> BR
     BR -- "ESPHome 原生 API(加密)<br/>show_card · set_sessions · set_metrics · set_screensaver" --> DEV
     DEV -- "实体键 / 图标点选 / 屏保唤醒(state)" --> BR
 ```
 
-LLM 全跑在设备之外(设备算力不够)。设备只负责显示 + 触摸 + 上报状态。bridge 按 `session_id`
-维护会话注册表,**只推语义、绝不推帧**:语言无关的 `status`(`run`/`think`/`wait`/`done`/`ready`/`online`)
-驱动设备端配色/动画(Claude 星芒在工作时**本地呼吸**),本地化的 `mood`/`title`/`body` 作为文本显示。
-点图标切换焦点会话——纯设备↔bridge 闭环,不回传 Claude Code。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+LLM 全跑在设备之外(设备算力不够)。设备只负责显示 + 触摸 + 上报状态。bridge 按 `session_id` /
+`thread_id` 维护会话注册表,**只推语义、绝不推帧**:语言无关的 `status`(`run`/`think`/`wait`/`done`/`ready`/`online`)
+驱动设备端配色/动画(provider 图标在工作时**本地呼吸**),本地化的 `mood`/`title`/`body` 作为文本显示。
+点图标切换焦点会话——纯设备↔bridge 闭环,不回传 agent。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 硬件
 
@@ -60,15 +61,16 @@ indicator-ai-companion/
 │   ├── indicator-companion.yaml     # 设备配置;show_card(status,mood,title,body,footer)
 │   ├── glyphs_zh.yaml / glyphs_full.yaml   # 内嵌字库字表
 │   ├── fonts/extract-font.py        # 从系统字体重建 ChineseFont.ttf(版权,不入库)
-│   ├── images/{bg.svg,gen-eyes.py}  # 背景图 + 眨眼眼睛帧生成
+│   ├── images/                      # bg.svg + session 图标帧生成(gen-claude.py / gen-codex.py)
 │   └── secrets.yaml.example         # WiFi / API key 模板
 ├── bridge/                          # Python daemon(Docker 常驻)
-│   ├── indicator_bridge/            # app、cards、companion、device、config、i18n
+│   ├── indicator_bridge/            # app、cards、companion、device、config、i18n、demo
 │   └── .env.example                 # 设备地址、加密 key、伴侣卡端点、语言
-├── hooks/                           # Claude Code 胶水
+├── hooks/                           # Claude Code / Codex 胶水
 │   ├── push-event.sh                # hook -> bridge 转发器(发了就走,不阻塞)
-│   ├── statusline-wrapper.sh        # 包装 claude-hud + 推 context/limit 指标
-│   └── settings.snippet.json        # 粘进 ~/.claude/settings.json 的片段
+│   ├── statusline-wrapper.sh        # Claude-only: 包装 claude-hud + 推 context/limit 指标
+│   ├── settings.snippet.json        # 粘进 ~/.claude/settings.json 的片段
+│   └── codex-hooks.snippet.json     # 粘进 ~/.codex/hooks.json 的片段
 └── docker-compose.yml
 ```
 
@@ -81,10 +83,10 @@ cd firmware
 uv run --with fonttools fonts/extract-font.py     # 重建中文字体(含版权,不入库)
 # 改 images/bg.svg 后重新栅格化:
 uv run --with cairosvg python -c "import cairosvg; cairosvg.svg2png(url='images/bg.svg', write_to='images/bg.png', output_width=480, output_height=480)"
-# 重新生成眨眼眼睛帧:
-uv run --with pillow --with numpy images/gen-eyes.py
-# 重新生成 Claude 星芒帧(session 图标,取自官方品牌 SVG):
+# 重新生成 Claude 星芒帧(session 图标):
 uv run --with cairosvg --with pillow images/gen-claude.py
+# 重新生成 Codex code mark 帧(session 图标):
+uv run python images/gen-codex.py
 ```
 
 ### 1. 刷固件
@@ -113,24 +115,39 @@ docker logs indicator-bridge -f
 伴侣卡走任意 OpenAI 兼容端点(本地 LM Studio / 局域网推理服务,免 key)。
 端点不可达时只是没有伴侣卡,HUD 照常工作。
 
-### 3. 接 Claude Code hooks
+### 3. 接 agent hooks
 
-把 `hooks/settings.snippet.json` 的 `hooks` 块合并进 `~/.claude/settings.json`(全局)或项目
+Claude Code:把 `hooks/settings.snippet.json` 的 `hooks` 块合并进 `~/.claude/settings.json`(全局)或项目
 `.claude/settings.json`,把 `/ABS/PATH/TO` 换成本仓库绝对路径,重开会话即生效。
+
+Codex:把 `hooks/codex-hooks.snippet.json` 的 `hooks` 块合并进 `~/.codex/hooks.json`(全局)或可信项目的
+`.codex/hooks.json`,把 `/ABS/PATH/TO` 换成本仓库绝对路径。Codex 会要求你通过 `/hooks` 审核并信任新 hook。
+
+### 4. Demo 模式(不接 agent 也能跑)
+
+bridge 运行中时,回放一段脚本化的假事件流——多 session 图标条(Claude + Codex)、工具卡、
+「需要你」告警、焦点切换、metrics,数据全部虚构。适合冒烟验证或录制演示视频:
+
+```bash
+cd bridge && uv run indicator-bridge-demo          # 全程约 2 分钟;--speed 2 / --loop
+```
+
+想连伴侣卡和屏保一起拍,先把 `bridge/.env` 的 `IDLE_SECONDS` / `SCREENSAVER_SECONDS` 调小。
 
 ## 状态映射(HUD)
 
-| Claude Code 事件 | status | 内容 |
+| 事件 | status | 内容 |
 |---|---|---|
 | SessionStart | `ready` | 当前项目名 |
 | UserPromptSubmit | `think` | 收到你的请求 |
 | PreToolUse | `run` | 工具名 + 摘要(命令 / 文件名 / grep 等) |
-| Notification | `wait` | 通知内容(等待权限/输入) |
+| Notification(Claude) / PermissionRequest(Codex) | `wait` | 等待权限/输入 |
+| PostToolUse | `think` | 清除 wait 告警并回到思考态 |
 | Stop | `done` | 本回合工具调用次数 |
-| SessionEnd | — | 该会话从图标条移除 |
+| SessionEnd(Claude / Codex 合成事件) | — | 该会话从图标条移除;Codex 由父进程 watcher 补发,TTL 兜底 |
 
 `status` 语言无关、驱动设备端配色;屏幕上的 `mood`/`title`/`body` 跟随 `BRIDGE_LANG`。每个事件都带
-`session_id`,图标条因此独立跟踪每个会话——星芒在 `run`/`think` 时呼吸,下方项目名按状态上色。
+`session_id` 或 `thread_id`,图标条因此独立跟踪每个会话——星芒在 `run`/`think` 时呼吸,下方项目名按状态上色。
 详情卡显示**焦点**会话(默认跟最近活跃;点某图标可钉住它约 45s)。
 
 ## 语言

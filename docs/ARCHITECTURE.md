@@ -46,31 +46,36 @@ bridge ──(低频:mood/event/内容)──▶ 设备
 
 ## 多 session 图标条 + 触摸切换
 
-一个 bridge 可同时服务多个 Claude Code 会话——每个会话的 hook 都 POST 到同一 bridge,
-payload 带 `session_id` 区分。bridge 按 `session_id` 维护注册表,顶部图标条最多并排 4 个
-**Claude 官方星芒 mark**(每个 = 一个 session)。
+一个 bridge 可同时服务多个 Claude Code / Codex 会话——每个会话的 hook 都 POST 到同一 bridge,
+payload 带 `session_id` 或 `thread_id` 区分。bridge 按会话 ID 维护注册表,顶部图标条最多并排 4 个
+provider 图标(每个 = 一个 session):Claude 会话用 Claude 星芒,Codex 会话用 Codex code mark。
 
 ```
 session A ─┐
-session B ─┼─hooks(带 session_id)─▶ bridge ─set_sessions(count,focus,...)─▶ 图标条
-session C ─┘                          │      └─show_card(焦点 session)──────▶ 详情卡
-                                       ▲
-设备触摸某图标 ─selected_session(传感器状态)─┘  (本地闭环:切焦点,不回传 Claude Code)
+session B ─┼─hooks(带 session_id/thread_id)─▶ bridge ─set_sessions(count,focus,...)─▶ 图标条
+session C ─┘                                    │      └─show_card(焦点 session)──────▶ 详情卡
+                                                 ▲
+设备触摸某图标 ─selected_session(传感器状态)───────┘  (本地闭环:切焦点,不回传 agent)
 ```
 
-- **图标语义**:星芒固定 Claude 品牌色 `0xD97757`(彩屏保真);**动画即状态**——run/think 呼吸+满亮,
-  其余静止+变暗。精确状态色放在图标下方项目名文字上(青/蓝/橙/绿/灰)。这延续「动画在设备端、
-  bridge 只推语义」原则:bridge 只推 `count/focus/status/label`,呼吸由固件 `animimg` 本地自驱。
+- **图标语义**:provider 决定图标与基础色(Claude 橙色、Codex 绿色);**动画即状态**——run/think
+  呼吸+满亮,其余静止+变暗。精确状态色放在图标下方项目名文字上(青/蓝/橙/绿/灰)。这延续「动画在设备端、
+  bridge 只推语义」原则:bridge 只推 `count/focus/status/label/provider`,呼吸由固件 `animimg` 本地自驱。
 - **焦点**:详情卡显示「焦点」session。默认跟随最近活跃的会话;手点某图标则钉住它 `PIN_TTL` 秒
   (期间别的会话有活动也不抢焦点),到期回落自动跟随。
 - **触摸为何只到 bridge 为止**:点图标只是本地切换「看哪个 session」,是设备↔bridge 的闭环,
-  无需回传 Claude Code。若想反向用触摸**回答** Claude Code 的提问(如选项选择),内置
-  `AskUserQuestion` 无法被 hook 注入答案——那需要另起一个自建 MCP 工具让模型同步阻塞等待触摸,
+  无需回传 agent。若想反向用触摸**回答** agent 的提问(如选项选择),Claude 的
+  `AskUserQuestion` / Codex 的交互批准都不能被 hook 注入答案——那需要另起一个自建 MCP 工具让模型同步阻塞等待触摸,
   不在本组件范围。
-- **生命周期**:`session-end` hook 即时移除;另有 `SESSION_TTL` 兜底过期清理。无活跃 session 时
+- **生命周期**:Claude 的 `session-end` hook 即时移除;Codex 目前无 `SessionEnd` hook,由 `push-event.sh`
+  在宿主侧 watch Codex 父进程,退出后补发合成 `session-end`,`SESSION_TTL` 兜底过期清理。无活跃 session 时
   图标条隐藏、改显待机眨眼睛 + 伴侣卡。
 - **屏保**:距最后活动超 `SCREENSAVER_SECONDS`(默认 300s)且无 needs-you 告警时,`set_screensaver`
-  推全屏大眼睛(待机眼帧 `transform_scale` 放大,零额外 flash)+ 俏皮话;任何 hook 或点屏(`screensaver_wake`)退出。
+  推全屏大眼睛(眼睛用 LVGL 图元现画:同心圆虹膜/瞳孔 + 眼睑矩形眨眼,分辨率无关、零 raster flash)+ 俏皮话;
+  任何 hook 或点屏(`screensaver_wake`)退出。
+- **Demo 模式**:`bridge/indicator_bridge/demo.py` 向 bridge 的 `/hook/{event}` / `/metrics` 回放脚本化
+  假事件流(数据全虚构),走与真实 hooks 完全相同的路径,用于免 agent 演示与录屏:
+  `cd bridge && uv run indicator-bridge-demo`。
 
 ## 接口演进
 

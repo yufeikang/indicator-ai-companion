@@ -82,7 +82,7 @@ api:
         - light.turn_on: backlight
         - lvgl.resume:
         - lvgl.widget.redraw:
-    # 会话指标(context 用量 + 5h limit),由 statusLine 经 bridge 推送
+    # 会话指标(context 用量 + 5h limit / token usage),由 agent 侧指标经 bridge 推送
     - action: set_metrics
       variables:
         metrics: string
@@ -91,7 +91,7 @@ api:
             id: lbl_metrics
             text: !lambda 'return metrics.c_str();'
     # 多 session 图标条:count 个活跃会话,focus 为当前选中(详情卡所示)的槽位。
-    # 星芒固定 Claude 品牌色 0xD97757;run/think(working)时呼吸+满亮,其余静止+变暗。
+    # provider 决定图标:Claude 会话用 Claude 星芒,Codex 会话用 Codex code mark。
     # 状态色体现在图标下方的项目名文字上(青=run/蓝=think/橙=wait/绿=done/灰=idle)。
     # count==0 显示待机眼睛。
     - action: set_sessions
@@ -100,12 +100,16 @@ api:
         focus: int
         s0_status: string
         s0_label: string
+        s0_provider: string
         s1_status: string
         s1_label: string
+        s1_provider: string
         s2_status: string
         s2_label: string
+        s2_provider: string
         s3_status: string
         s3_label: string
+        s3_provider: string
       then:
         - if:
             condition:
@@ -139,15 +143,37 @@ api:
               - lvgl.widget.update:
                   id: slot0_icon
                   image_recolor_opa: !lambda 'return (s0_status == "run" || s0_status == "think" || s0_status == "wait") ? 255 : 130;'
+              - lvgl.widget.update:
+                  id: slot0_codex_icon
+                  image_recolor_opa: !lambda 'return (s0_status == "run" || s0_status == "think" || s0_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s0_provider == "codex";'
+                  then:
+                    - lvgl.widget.hide: slot0_icon
+                    - lvgl.widget.show: slot0_codex_icon
+                  else:
+                    - lvgl.widget.show: slot0_icon
+                    - lvgl.widget.hide: slot0_codex_icon
               - if:
                   condition:
                     lambda: 'return s0_status == "run" || s0_status == "think";'
                   then:
-                    - lvgl.animimg.start: slot0_icon
+                    - if:
+                        condition:
+                          lambda: 'return s0_provider == "codex";'
+                        then:
+                          - lvgl.animimg.stop: slot0_icon
+                          - lvgl.animimg.start: slot0_codex_icon
+                        else:
+                          - lvgl.animimg.start: slot0_icon
+                          - lvgl.animimg.stop: slot0_codex_icon
                   else:
                     - lvgl.animimg.stop: slot0_icon
+                    - lvgl.animimg.stop: slot0_codex_icon
             else:
               - lvgl.animimg.stop: slot0_icon
+              - lvgl.animimg.stop: slot0_codex_icon
               - lvgl.widget.hide: slot0
         - if:
             condition:
@@ -175,15 +201,37 @@ api:
               - lvgl.widget.update:
                   id: slot1_icon
                   image_recolor_opa: !lambda 'return (s1_status == "run" || s1_status == "think" || s1_status == "wait") ? 255 : 130;'
+              - lvgl.widget.update:
+                  id: slot1_codex_icon
+                  image_recolor_opa: !lambda 'return (s1_status == "run" || s1_status == "think" || s1_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s1_provider == "codex";'
+                  then:
+                    - lvgl.widget.hide: slot1_icon
+                    - lvgl.widget.show: slot1_codex_icon
+                  else:
+                    - lvgl.widget.show: slot1_icon
+                    - lvgl.widget.hide: slot1_codex_icon
               - if:
                   condition:
                     lambda: 'return s1_status == "run" || s1_status == "think";'
                   then:
-                    - lvgl.animimg.start: slot1_icon
+                    - if:
+                        condition:
+                          lambda: 'return s1_provider == "codex";'
+                        then:
+                          - lvgl.animimg.stop: slot1_icon
+                          - lvgl.animimg.start: slot1_codex_icon
+                        else:
+                          - lvgl.animimg.start: slot1_icon
+                          - lvgl.animimg.stop: slot1_codex_icon
                   else:
                     - lvgl.animimg.stop: slot1_icon
+                    - lvgl.animimg.stop: slot1_codex_icon
             else:
               - lvgl.animimg.stop: slot1_icon
+              - lvgl.animimg.stop: slot1_codex_icon
               - lvgl.widget.hide: slot1
         - if:
             condition:
@@ -211,15 +259,37 @@ api:
               - lvgl.widget.update:
                   id: slot2_icon
                   image_recolor_opa: !lambda 'return (s2_status == "run" || s2_status == "think" || s2_status == "wait") ? 255 : 130;'
+              - lvgl.widget.update:
+                  id: slot2_codex_icon
+                  image_recolor_opa: !lambda 'return (s2_status == "run" || s2_status == "think" || s2_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s2_provider == "codex";'
+                  then:
+                    - lvgl.widget.hide: slot2_icon
+                    - lvgl.widget.show: slot2_codex_icon
+                  else:
+                    - lvgl.widget.show: slot2_icon
+                    - lvgl.widget.hide: slot2_codex_icon
               - if:
                   condition:
                     lambda: 'return s2_status == "run" || s2_status == "think";'
                   then:
-                    - lvgl.animimg.start: slot2_icon
+                    - if:
+                        condition:
+                          lambda: 'return s2_provider == "codex";'
+                        then:
+                          - lvgl.animimg.stop: slot2_icon
+                          - lvgl.animimg.start: slot2_codex_icon
+                        else:
+                          - lvgl.animimg.start: slot2_icon
+                          - lvgl.animimg.stop: slot2_codex_icon
                   else:
                     - lvgl.animimg.stop: slot2_icon
+                    - lvgl.animimg.stop: slot2_codex_icon
             else:
               - lvgl.animimg.stop: slot2_icon
+              - lvgl.animimg.stop: slot2_codex_icon
               - lvgl.widget.hide: slot2
         - if:
             condition:
@@ -247,15 +317,37 @@ api:
               - lvgl.widget.update:
                   id: slot3_icon
                   image_recolor_opa: !lambda 'return (s3_status == "run" || s3_status == "think" || s3_status == "wait") ? 255 : 130;'
+              - lvgl.widget.update:
+                  id: slot3_codex_icon
+                  image_recolor_opa: !lambda 'return (s3_status == "run" || s3_status == "think" || s3_status == "wait") ? 255 : 130;'
+              - if:
+                  condition:
+                    lambda: 'return s3_provider == "codex";'
+                  then:
+                    - lvgl.widget.hide: slot3_icon
+                    - lvgl.widget.show: slot3_codex_icon
+                  else:
+                    - lvgl.widget.show: slot3_icon
+                    - lvgl.widget.hide: slot3_codex_icon
               - if:
                   condition:
                     lambda: 'return s3_status == "run" || s3_status == "think";'
                   then:
-                    - lvgl.animimg.start: slot3_icon
+                    - if:
+                        condition:
+                          lambda: 'return s3_provider == "codex";'
+                        then:
+                          - lvgl.animimg.stop: slot3_icon
+                          - lvgl.animimg.start: slot3_codex_icon
+                        else:
+                          - lvgl.animimg.start: slot3_icon
+                          - lvgl.animimg.stop: slot3_codex_icon
                   else:
                     - lvgl.animimg.stop: slot3_icon
+                    - lvgl.animimg.stop: slot3_codex_icon
             else:
               - lvgl.animimg.stop: slot3_icon
+              - lvgl.animimg.stop: slot3_codex_icon
               - lvgl.widget.hide: slot3
         - if:
             condition:
@@ -645,7 +737,7 @@ lvgl:
               border_width: 0
               pad_all: 0
               clickable: false
-    # 顶部 session 图标条:4 个可点槽位(Claude 星芒 + 项目名),默认隐藏,由 set_sessions 驱动。
+    # 顶部 session 图标条:4 个可点槽位(provider 图标 + 项目名),默认隐藏,由 set_sessions 驱动。
     # 点击 -> 自增 tap_seq、publish selected_session(*4+索引),bridge 据此切换详情卡焦点。
     - button:
         id: slot0
@@ -671,6 +763,17 @@ lvgl:
               repeat_count: forever
               auto_start: false
               image_recolor: 0xD97757
+              image_recolor_opa: 100%
+          - animimg:
+              id: slot0_codex_icon
+              align: TOP_MID
+              y: 4
+              src: [codex_00, codex_01, codex_02, codex_03, codex_04, codex_05, codex_06, codex_07, codex_08, codex_09, codex_10, codex_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              hidden: true
+              image_recolor: 0x10A37F
               image_recolor_opa: 100%
           - label:
               id: slot0_lbl
@@ -707,6 +810,17 @@ lvgl:
               auto_start: false
               image_recolor: 0xD97757
               image_recolor_opa: 100%
+          - animimg:
+              id: slot1_codex_icon
+              align: TOP_MID
+              y: 4
+              src: [codex_00, codex_01, codex_02, codex_03, codex_04, codex_05, codex_06, codex_07, codex_08, codex_09, codex_10, codex_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              hidden: true
+              image_recolor: 0x10A37F
+              image_recolor_opa: 100%
           - label:
               id: slot1_lbl
               align: BOTTOM_MID
@@ -742,6 +856,17 @@ lvgl:
               auto_start: false
               image_recolor: 0xD97757
               image_recolor_opa: 100%
+          - animimg:
+              id: slot2_codex_icon
+              align: TOP_MID
+              y: 4
+              src: [codex_00, codex_01, codex_02, codex_03, codex_04, codex_05, codex_06, codex_07, codex_08, codex_09, codex_10, codex_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              hidden: true
+              image_recolor: 0x10A37F
+              image_recolor_opa: 100%
           - label:
               id: slot2_lbl
               align: BOTTOM_MID
@@ -776,6 +901,17 @@ lvgl:
               repeat_count: forever
               auto_start: false
               image_recolor: 0xD97757
+              image_recolor_opa: 100%
+          - animimg:
+              id: slot3_codex_icon
+              align: TOP_MID
+              y: 4
+              src: [codex_00, codex_01, codex_02, codex_03, codex_04, codex_05, codex_06, codex_07, codex_08, codex_09, codex_10, codex_11]
+              duration: 850ms
+              repeat_count: forever
+              auto_start: false
+              hidden: true
+              image_recolor: 0x10A37F
               image_recolor_opa: 100%
           - label:
               id: slot3_lbl

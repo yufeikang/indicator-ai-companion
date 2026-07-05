@@ -34,7 +34,7 @@ class Strings:
     body_tools_fmt: str
     body_wait_next: str
     title_bridge_up: str
-    body_waiting_cc: str
+    body_waiting_agent: str
     title_button_tap: str
     body_companion_offline: str
     fallback_project: str
@@ -60,10 +60,10 @@ ZH = Strings(
     body_tools_fmt="本回合 {n} 次工具调用",
     body_wait_next="等待下一步",
     title_bridge_up="Bridge 已连",
-    body_waiting_cc="等待 Claude Code…",
+    body_waiting_agent="等待 agent…",
     title_button_tap="点了一下",
     body_companion_offline="伴侣端点离线",
-    fallback_project="Claude Code",
+    fallback_project="AI Agent",
     screensaver_hint="轻触唤醒",
     screensaver_lines=(
         "主人去哪了,我眼睛都看酸了",
@@ -94,10 +94,10 @@ EN = Strings(
     body_tools_fmt="{n} tool calls this turn",
     body_wait_next="Awaiting next step",
     title_bridge_up="Bridge connected",
-    body_waiting_cc="Waiting for Claude Code…",
+    body_waiting_agent="Waiting for an agent…",
     title_button_tap="Tapped",
     body_companion_offline="Companion endpoint offline",
-    fallback_project="Claude Code",
+    fallback_project="AI Agent",
     screensaver_hint="Tap to wake",
     screensaver_lines=(
         "Where'd you go? My eyes went dry",

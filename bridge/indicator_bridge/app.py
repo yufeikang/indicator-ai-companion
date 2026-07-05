@@ -11,9 +11,12 @@ from .cards import (
     Card,
     Stats,
     format_metrics,
+    event_payload,
     project_name,
+    provider_name,
     render_hook,
     sanitize_text,
+    session_key,
     sessions_args,
 )
 from .companion import Companion
@@ -27,11 +30,27 @@ PIN_TTL = 45.0          # 手点某图标后,焦点钉在它身上的有效时�
 SESSION_TTL = 1800.0    # 一个 session 多久无事件后从图标条移除(秒)
 SAVER_LINE_TTL = 120.0  # 屏保期间俏皮话多久换一句(秒)
 
+EVENT_ALIASES = {
+    "SessionStart": "session-start",
+    "SessionEnd": "session-end",
+    "UserPromptSubmit": "user-prompt",
+    "PreToolUse": "pre-tool",
+    "PermissionRequest": "permission-request",
+    "PostToolUse": "post-tool",
+    "Notification": "notification",
+    "Stop": "stop",
+}
+
+
+def normalize_event(event: str) -> str:
+    return EVENT_ALIASES.get(event, event).strip().lower()
+
 
 @dataclass
 class SessionState:
     sid: str
     project: str = ""
+    provider: str = "claude"
     card: Card | None = None
     status: str = ""
     stats: Stats = field(default_factory=Stats)
@@ -101,7 +120,7 @@ class Bridge:
                 if self.focused_sid in self.slot_order else 0
             )
 
-            slots = [(s.status, s.project or "cc") for s in order]
+            slots = [(s.status, s.project or "ai", s.provider) for s in order]
             sargs = sessions_args(slots, focus_idx)
             if sargs != self._last_sessions_args:
                 self._last_sessions_args = sargs
@@ -118,10 +137,16 @@ class Bridge:
                     self._last_card_data = cdata
                     await self.device.show_card(card)
 
-    # ---- Claude Code hook 事件 ----
+    # ---- Agent hook 事件 ----
     async def on_hook(self, event: str, payload: dict) -> None:
+        event = normalize_event(event)
         now = time.monotonic()
-        sid = str(payload.get("session_id") or "default")
+        sid = session_key(payload)
+        self.last_event = now
+        woke_from_saver = False
+        if self.screensaver_on:
+            woke_from_saver = True
+            await self._exit_screensaver()
 
         if event == "session-end":
             self.sessions.pop(sid, None)
@@ -142,14 +167,15 @@ class Bridge:
 
         # 不出卡的新 session 不登记,避免幽灵槽位
         if card is None and not existed and not sess.status:
+            if woke_from_saver:
+                await self._push()
             return
 
         self.sessions[sid] = sess
         sess.last_seen = now
-        self.last_event = now
-        if self.screensaver_on:
-            await self._exit_screensaver()
-        proj = project_name(payload.get("cwd", ""))
+        sess.provider = provider_name(payload)
+        hook_payload = event_payload(payload)
+        proj = project_name(hook_payload.get("cwd") or payload.get("cwd", ""))
         if proj:
             sess.project = proj
         if card:
@@ -189,10 +215,11 @@ class Bridge:
         await self._push()
 
     async def on_connect(self) -> None:
-        # 重连后设备覆盖层默认隐藏,清缓存强制全量重推
+        # 重连后主动清屏保覆盖层,再清缓存强制全量重推
         self._last_sessions_args = None
         self._last_card_data = None
         self.screensaver_on = False
+        await self.device.set_screensaver(False, "", "")
         await self._push()
 
     # ---- 后台任务 ----
@@ -274,7 +301,7 @@ class Bridge:
         self.screensaver_on = False
         await self.device.set_screensaver(False, "", "")
 
-    # ---- HTTP(接收 Claude Code hook 事件) ----
+    # ---- HTTP(接收 agent hook 事件) ----
     async def _http_hook(self, request: web.Request) -> web.Response:
         event = request.match_info["event"]
         try:
@@ -313,7 +340,7 @@ class Bridge:
         log.info("hook endpoint: http://%s:%d/hook/<event>", self.cfg.http_host, self.cfg.http_port)
 
         s = self.strings
-        self.idle_card = Card(s.mood_online, s.title_bridge_up, s.body_waiting_cc, "", STATUS_ONLINE)
+        self.idle_card = Card(s.mood_online, s.title_bridge_up, s.body_waiting_agent, "", STATUS_ONLINE)
         await self.device.start()  # on_connect 回调会在连上后推首屏(眼睛 + 等待卡)
 
         await self._companion_loop()

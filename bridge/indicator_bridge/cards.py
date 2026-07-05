@@ -62,8 +62,13 @@ def _slot_label(s: str) -> str:
     return sanitize_text(s)[:7]
 
 
-def sessions_args(slots: list[tuple[str, str]], focus_idx: int) -> dict:
-    """把已按显示顺序排好的 (status, label) 列表(<=4)组装成 set_sessions 的入参。"""
+def _slot_provider(provider: str) -> str:
+    p = (provider or "").lower()
+    return p if p in ("claude", "codex") else "claude"
+
+
+def sessions_args(slots: list[tuple[str, str, str]], focus_idx: int) -> dict:
+    """把已按显示顺序排好的 (status, label, provider) 列表组装成 set_sessions 入参。"""
     slots = slots[:MAX_SLOTS]
     n = len(slots)
     args: dict[str, object] = {
@@ -71,24 +76,108 @@ def sessions_args(slots: list[tuple[str, str]], focus_idx: int) -> dict:
         "focus": max(0, min(focus_idx, n - 1)) if n else 0,
     }
     for i in range(MAX_SLOTS):
-        st, lb = slots[i] if i < n else ("", "")
+        st, lb, provider = slots[i] if i < n else ("", "", "")
         args[f"s{i}_status"] = st
         args[f"s{i}_label"] = _slot_label(lb)
+        args[f"s{i}_provider"] = _slot_provider(provider)
     return args
 
 
+def event_payload(payload: dict) -> dict:
+    """Return hook payload fields with wrapper metadata merged in.
+
+    push-event.sh wraps hook stdin as {"cwd": "...", "payload": {...}} so the
+    bridge can always recover the working directory. Direct legacy Claude
+    payloads are still accepted.
+    """
+    inner = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    if not inner:
+        return payload
+    merged = dict(inner)
+    for key in ("cwd", "hook_event", "source", "session_id", "thread_id", "conversation_id"):
+        if payload.get(key) and not merged.get(key):
+            merged[key] = payload[key]
+    return merged
+
+
+def session_key(payload: dict) -> str:
+    p = event_payload(payload)
+    for key in ("session_id", "thread_id", "conversation_id", "assigned_thread_id"):
+        value = p.get(key)
+        if value:
+            return str(value)
+    return "default"
+
+
+def provider_name(payload: dict) -> str:
+    p = event_payload(payload)
+    source = str(p.get("source") or "").lower()
+    if source in ("claude", "codex"):
+        return source
+    event = str(p.get("hook_event") or "").lower()
+    if "codex" in event:
+        return "codex"
+    return "claude"
+
+
 def _footer(payload: dict) -> str:
-    proj = _project(payload.get("cwd", ""))
+    p = event_payload(payload)
+    proj = _project(p.get("cwd", ""))
     return f"{proj} · {_now()}" if proj else _now()
+
+
+def _tool_name(payload: dict) -> str:
+    p = event_payload(payload)
+    for key in ("tool_name", "toolName", "name"):
+        value = p.get(key)
+        if value:
+            return str(value)
+    for key in ("tool", "tool_call", "call"):
+        value = p.get(key)
+        if isinstance(value, dict):
+            for name_key in ("name", "tool_name", "toolName"):
+                name = value.get(name_key)
+                if name:
+                    return str(name)
+    return ""
+
+
+def _tool_input(payload: dict) -> dict:
+    p = event_payload(payload)
+    for key in ("tool_input", "toolInput", "input", "arguments", "args"):
+        value = p.get(key)
+        if isinstance(value, dict):
+            return value
+    for key in ("tool", "tool_call", "call"):
+        value = p.get(key)
+        if isinstance(value, dict):
+            for input_key in ("input", "arguments", "args", "tool_input", "toolInput"):
+                inner = value.get(input_key)
+                if isinstance(inner, dict):
+                    return inner
+    return {}
+
+
+def _payload_message(payload: dict) -> str:
+    p = event_payload(payload)
+    for key in ("message", "reason", "prompt", "description", "summary"):
+        value = p.get(key)
+        if value:
+            return str(value)
+    return ""
 
 
 def _tool_summary(tool_name: str, tool_input: dict | None) -> str:
     ti = tool_input or {}
-    if tool_name == "Bash":
-        return str(ti.get("command", ""))
-    if tool_name in ("Edit", "Write", "Read", "NotebookEdit"):
-        return os.path.basename(str(ti.get("file_path", "")))
-    if tool_name == "Grep":
+    name = tool_name.rsplit(".", 1)[-1]
+    if tool_name in ("Bash", "functions.exec_command", "exec_command") or name == "exec_command":
+        return str(ti.get("command") or ti.get("cmd") or "")
+    if tool_name in ("Edit", "Write", "Read", "NotebookEdit", "apply_patch") or name in (
+        "apply_patch",
+        "view_image",
+    ):
+        return os.path.basename(str(ti.get("file_path") or ti.get("path") or "")) or "patch"
+    if tool_name in ("Grep", "find") or name == "find":
         return "grep " + str(ti.get("pattern", ""))
     if tool_name == "Glob":
         return str(ti.get("pattern", ""))
@@ -135,13 +224,14 @@ class Stats:
             self.tools_this_turn = 0
         elif event == "pre-tool":
             self.tools_this_turn += 1
-            self.last_tool = payload.get("tool_name", "")
+            self.last_tool = _tool_name(payload)
 
 
 def render_hook(
     event: str, payload: dict, stats: Stats, s: Strings, prev_status: str = ""
 ) -> Card | None:
-    """把一个 Claude Code hook 事件渲染成一张 HUD 卡片(None 表示该事件不出卡)。"""
+    """把一个 agent hook 事件渲染成一张 HUD 卡片(None 表示该事件不出卡)。"""
+    payload = event_payload(payload)
     footer = _footer(payload)
 
     if event == "post-tool":
@@ -159,15 +249,22 @@ def render_hook(
         return Card(s.mood_think, s.title_thinking, s.body_got_request, footer, STATUS_THINK)
 
     if event == "pre-tool":
-        tn = payload.get("tool_name", "工具")
-        ti = payload.get("tool_input") or {}
-        if tn == "AskUserQuestion":
+        tn = _tool_name(payload) or "tool"
+        ti = _tool_input(payload)
+        if tn in ("AskUserQuestion", "request_user_input", "functions.request_user_input"):
             return _ask_card(ti, footer, s)
         return Card(s.mood_run, tn, _tool_summary(tn, ti), footer, STATUS_RUN)
 
+    if event == "permission-request":
+        tn = _tool_name(payload)
+        ti = _tool_input(payload)
+        msg = _payload_message(payload) or _tool_summary(tn, ti) or s.notify_default
+        title = s.title_approve if tn else s.title_need_you
+        return Card(s.mood_wait, title, msg, footer, STATUS_WAIT)
+
     if event == "notification":
         ntype = payload.get("notification_type", "")
-        # Claude 干完活等下一步 / 认证成功:不抢镜,留给 stop 卡
+        # Agent 干完活等下一步 / 认证成功:不抢镜,留给 stop 卡
         if ntype in ("idle_prompt", "auth_success", "elicitation_complete", "elicitation_response"):
             return None
         title = s.title_approve if ntype == "permission_prompt" else s.title_need_you

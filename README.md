@@ -3,19 +3,20 @@
 **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 Turn a **Seeed SenseCAP Indicator D1** (ESP32-S3 + 4″ 480×480 touch screen) into a
-**physical status display (HUD) for Claude Code + an AI desk companion**, with a calm
+**physical status display (HUD) for Claude Code / Codex + an AI desk companion**, with a calm
 dark ambient UI.
 
-- **Claude Code HUD** — via Claude Code hooks, the screen shows in real time what your
+- **Agent HUD** — via Claude Code or Codex hooks, the screen shows in real time what your
   agent is doing: thinking / which tool is running / waiting for your confirmation / done.
-- **Multi-session icon strip** — run Claude Code in several terminals at once and each
-  session gets its own **Claude spark icon** across the top (up to 4). The spark breathes
+- **Multi-session icon strip** — run Claude Code / Codex in several terminals at once and each
+  session gets its own provider icon across the top (up to 4): Claude sessions show the Claude
+  spark, Codex sessions show a Codex code mark. The icon breathes
   while that session is working; the project name under it is color-coded by status.
   **Tap an icon** to switch the detail card to that session (the screen is touch; the tap
-  loop is device↔bridge only — it does not feed back into Claude Code).
+  loop is device↔bridge only — it does not feed back into the agent).
 - **AI companion cards** — when no session is active, a local/LAN LLM generates a short
   warm or witty line; press the device button to swap to a fresh one.
-- **Screensaver** — after `SCREENSAVER_SECONDS` (default 300s) with no Claude activity, the
+- **Screensaver** — after `SCREENSAVER_SECONDS` (default 300s) with no agent activity, the
   screen turns into full-screen blinking eyes with one cheeky line (LLM-generated, with a
   built-in fallback). Tap anywhere to wake. It won't kick in while a "needs you" prompt is
   pending, so urgent alerts are never hidden.
@@ -30,12 +31,12 @@ dark ambient UI.
 
 ```mermaid
 flowchart LR
-    CC["Claude Code<br/>(N sessions)"]
+    AG["Claude Code / Codex<br/>(N sessions)"]
     BR["bridge<br/>(Docker daemon)"]
     LLM["OpenAI-compatible<br/>LLM endpoint"]
     DEV["Indicator D1<br/>(ESP32-S3 · LVGL)"]
 
-    CC -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(carries session_id)" --> BR
+    AG -- "hooks (HTTP)<br/>POST /hook/{event}<br/>(carries session_id/thread_id)" --> BR
     BR -- "prompt (when idle)" --> LLM
     LLM -- "companion card" --> BR
     BR -- "ESPHome native API (encrypted)<br/>show_card · set_sessions · set_metrics · set_screensaver" --> DEV
@@ -43,12 +44,12 @@ flowchart LR
 ```
 
 All LLM work runs off-device (the board can't host it). The device only displays,
-handles touch, and reports state. The bridge keys events by `session_id`, keeps a small
+handles touch, and reports state. The bridge keys events by `session_id` / `thread_id`, keeps a small
 session registry, and pushes **semantics, never frames**: a language-independent `status`
-(`run`/`think`/`wait`/`done`/`ready`/`online`) drives on-device color/animation (the Claude
-spark *breathes* locally while working), while the localized `mood`/`title`/`body` show as
+(`run`/`think`/`wait`/`done`/`ready`/`online`) drives on-device color/animation (the provider
+icon *breathes* locally while working), while the localized `mood`/`title`/`body` show as
 text. Tapping an icon switches the focused session — a device↔bridge loop that never feeds
-back into Claude Code. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+back into the agent. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Hardware
 
@@ -72,15 +73,16 @@ indicator-ai-companion/
 │   ├── indicator-companion.yaml     # device config; show_card(status,mood,title,body,footer)
 │   ├── glyphs_zh.yaml / glyphs_full.yaml   # embedded glyph sets
 │   ├── fonts/extract-font.py        # rebuild ChineseFont.ttf from a system font (gitignored)
-│   ├── images/{bg.svg,gen-eyes.py}  # background + blinking-eyes frame generator
+│   ├── images/                      # bg.svg + session icon generators (gen-claude.py / gen-codex.py)
 │   └── secrets.yaml.example         # WiFi / API key template
 ├── bridge/                          # Python daemon (Docker resident)
-│   ├── indicator_bridge/            # app, cards, companion, device, config, i18n
+│   ├── indicator_bridge/            # app, cards, companion, device, config, i18n, demo
 │   └── .env.example                 # device addr, encryption key, companion endpoint, lang
-├── hooks/                           # Claude Code glue
+├── hooks/                           # Claude Code / Codex glue
 │   ├── push-event.sh                # hook -> bridge forwarder (fire-and-forget)
-│   ├── statusline-wrapper.sh        # wraps claude-hud + pushes context/limit metrics
-│   └── settings.snippet.json        # paste into ~/.claude/settings.json
+│   ├── statusline-wrapper.sh        # Claude-only: wraps claude-hud + pushes context/limit metrics
+│   ├── settings.snippet.json        # paste into ~/.claude/settings.json
+│   └── codex-hooks.snippet.json     # paste into ~/.codex/hooks.json
 └── docker-compose.yml
 ```
 
@@ -93,10 +95,10 @@ cd firmware
 uv run --with fonttools fonts/extract-font.py     # rebuild the CJK font (copyright; not in repo)
 # regenerate the background after editing images/bg.svg:
 uv run --with cairosvg python -c "import cairosvg; cairosvg.svg2png(url='images/bg.svg', write_to='images/bg.png', output_width=480, output_height=480)"
-# regenerate the blinking-eyes frames:
-uv run --with pillow --with numpy images/gen-eyes.py
-# regenerate the Claude spark frames (session icon; from the official brand SVG):
+# regenerate the Claude spark frames (session icon):
 uv run --with cairosvg --with pillow images/gen-claude.py
+# regenerate the Codex code-mark frames (session icon):
+uv run python images/gen-codex.py
 ```
 
 ### 1. Flash the firmware
@@ -128,25 +130,43 @@ The companion card uses any OpenAI-compatible endpoint (local LM Studio / a LAN
 inference server, no key needed). If the endpoint is unreachable you just get no
 companion card — the HUD keeps working.
 
-### 3. Wire up Claude Code hooks
+### 3. Wire up agent hooks
 
-Merge the `hooks` block from `hooks/settings.snippet.json` into `~/.claude/settings.json`
-(global) or a project `.claude/settings.json`, replacing `/ABS/PATH/TO` with this repo's
-absolute path. Restart the session to take effect.
+Claude Code: merge the `hooks` block from `hooks/settings.snippet.json` into
+`~/.claude/settings.json` (global) or a project `.claude/settings.json`, replacing
+`/ABS/PATH/TO` with this repo's absolute path. Restart the session to take effect.
+
+Codex: merge the `hooks` block from `hooks/codex-hooks.snippet.json` into
+`~/.codex/hooks.json` (global) or a trusted project `.codex/hooks.json`, replacing
+`/ABS/PATH/TO` with this repo's absolute path. Review and trust the hook from Codex `/hooks`.
+
+### 4. Demo mode (no agent needed)
+
+With the bridge running, replay a scripted fake event stream — multi-session strip
+(Claude + Codex), tool cards, "needs you" alerts, focus switching, metrics. All data
+is fictional; handy for a smoke test or recording a video:
+
+```bash
+cd bridge && uv run indicator-bridge-demo          # ~2 min; --speed 2 / --loop
+```
+
+To also capture the companion card and screensaver, lower `IDLE_SECONDS` /
+`SCREENSAVER_SECONDS` in `bridge/.env` before recording.
 
 ## Status mapping (HUD)
 
-| Claude Code event | status | shown |
+| Event | status | shown |
 |---|---|---|
 | SessionStart | `ready` | current project name |
 | UserPromptSubmit | `think` | "got your request" |
 | PreToolUse | `run` | tool name + summary (command / file / grep …) |
-| Notification | `wait` | the notification (awaiting permission/input) |
+| Notification (Claude) / PermissionRequest (Codex) | `wait` | awaiting permission/input |
+| PostToolUse | `think` | clears a wait alert after permission/input |
 | Stop | `done` | tool-call count this turn |
-| SessionEnd | — | session removed from the icon strip |
+| SessionEnd (Claude / synthetic Codex) | — | session removed from the icon strip; Codex uses a parent-process watcher, with TTL as fallback |
 
 `status` is language-independent and drives the on-device color; the visible
-`mood`/`title`/`body` follow `BRIDGE_LANG`. Each event carries a `session_id`, so the
+`mood`/`title`/`body` follow `BRIDGE_LANG`. Events carry a `session_id` or `thread_id`, so the
 strip tracks every session independently — the spark icon breathes for `run`/`think`,
 and the project name under it is tinted by status. The detail card shows the **focused**
 session (most recently active by default; tap an icon to pin one for ~45s).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code statusLine wrapper:
+# Claude Code statusLine wrapper (Claude-only metrics path):
 #   1. 保留原 claude-hud 状态行显示(透传 stdin,输出其 stdout)
 #   2. 把 statusLine JSON(含 context_window / rate_limits)后台推给 Indicator bridge
 # 配置: settings.json 的 statusLine.command 指向本脚本。
@@ -7,9 +7,10 @@ input=$(cat)
 
 # 后台推送会话指标给 bridge(发了就走,绝不拖慢状态行)
 PORT="${INDICATOR_BRIDGE_PORT:-9527}"
+HOST="${INDICATOR_BRIDGE_HOST:-127.0.0.1}"
 F="$(mktemp -t indmetric)"
 printf '%s' "$input" > "$F"
-( curl -s -m1 -X POST "http://127.0.0.1:${PORT}/metrics" \
+( curl -s -m1 -X POST "http://${HOST}:${PORT}/metrics" \
     -H 'Content-Type: application/json' --data-binary @"$F" >/dev/null 2>&1; rm -f "$F" ) &
 
 # 前台:原 claude-hud statusline(动态定位最新插件版本)
