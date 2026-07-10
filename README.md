@@ -25,7 +25,11 @@ dark ambient UI.
 
 ## Demo
 
-![Indicator AI Companion cycling through Claude Code states](docs/demo.gif)
+Real hardware — click a thumbnail to play the video:
+
+| Agent HUD — multi-session status | Idle screensaver — blinking eyes |
+| :---: | :---: |
+| [![Indicator cycling through Claude Code / Codex states on real hardware](docs/media/demo-full-poster.jpg)](docs/media/demo-full.mp4) | [![Full-screen blinking eyes screensaver](docs/media/demo-eyes-poster.jpg)](docs/media/demo-eyes.mp4) |
 
 ## How it works
 

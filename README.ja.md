@@ -21,7 +21,11 @@
 
 ## デモ
 
-![Agent の各状態を巡る Indicator HUD](docs/demo.gif)
+実機デモ —— サムネイルをクリックで再生：
+
+| Agent HUD —— マルチセッション状態 | 待機スクリーンセーバー —— まばたきする目 |
+| :---: | :---: |
+| [![実機で各 agent 状態を巡る Indicator](docs/media/demo-full-poster.jpg)](docs/media/demo-full.mp4) | [![全画面のまばたきスクリーンセーバー](docs/media/demo-eyes-poster.jpg)](docs/media/demo-eyes.mp4) |
 
 ## 仕組み
 

@@ -17,7 +17,11 @@
 
 ## 演示
 
-![Indicator HUD 在各 agent 状态间切换](docs/demo.gif)
+真机演示 —— 点击缩略图播放视频：
+
+| Agent HUD —— 多 session 状态 | 待机屏保 —— 眨眼大眼睛 |
+| :---: | :---: |
+| [![真机上 Indicator 在各 agent 状态间切换](docs/media/demo-full-poster.jpg)](docs/media/demo-full.mp4) | [![全屏眨眼大眼睛屏保](docs/media/demo-eyes-poster.jpg)](docs/media/demo-eyes.mp4) |
 
 ## 工作原理
 
